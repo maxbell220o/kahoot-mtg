@@ -1,0 +1,26 @@
+name: Feature Request
+description: Neue Funktion vorschlagen
+labels: ["feature"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung
+      description: Was soll die neue Funktion machen?
+      placeholder: Beschreibe die Funktion so genau wie möglich.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Warum ist das nützlich?
+      description: Welches Problem löst diese Funktion?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Kontext
+      description: Screenshots, Skizzen, Beispiele — alles was hilft.

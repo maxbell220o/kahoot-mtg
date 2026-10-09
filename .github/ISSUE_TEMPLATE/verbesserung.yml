@@ -1,0 +1,17 @@
+name: Verbesserung
+description: Etwas bestehendes verbessern
+labels: ["verbesserung"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Was soll verbessert werden?
+      description: Beschreibe was aktuell nicht gut ist und wie es besser sein könnte.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Kontext
+      description: Screenshots, Beispiele — alles was hilft.

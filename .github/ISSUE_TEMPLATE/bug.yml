@@ -1,0 +1,49 @@
+name: Bug Report
+description: Einen Fehler melden
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung
+      description: Was ist passiert?
+      placeholder: Beschreibe den Fehler so genau wie möglich.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+      description: Was hätte stattdessen passieren sollen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zum Reproduzieren
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Schweregrad
+      options:
+        - P4 — Niedrig (kosmetisch)
+        - P3 — Mittel (Nebenfunktion betroffen)
+        - P2 — Hoch (Kernfunktion eingeschränkt)
+        - P1 — Kritisch (System ausgefallen)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Kontext
+      description: Screenshots, Logs, Umgebung — alles was hilft.
