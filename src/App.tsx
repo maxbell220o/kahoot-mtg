@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import {
+  advanceGame,
+  getDisplayGameState,
+  getGameState,
+  getTeacherGameState,
+  joinGame,
+  loadSavedQuizzes,
+  saveQuiz,
+  startGame,
+  submitAnswer,
+  type PublicGameState,
+  type DisplayGameState,
+  type SavedQuiz,
+  type TeacherGameState,
+} from "./gameApi";
 import { createEmptyQuestion, parseQuiz, type Quiz, type QuizQuestion } from "./types";
 
 const starterQuiz: Quiz = {
@@ -31,9 +46,62 @@ function Layout({ children }: { children: React.ReactNode }) {
 function StudentHome() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [playerId, setPlayerId] = useState("");
+  const [gameState, setGameState] = useState<PublicGameState | null>(null);
+  const [error, setError] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [answering, setAnswering] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (!playerId || !code) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const state = await getGameState(code, playerId);
+        if (active) {
+          setGameState(state);
+          setError("");
+        }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Quizstatus konnte nicht geladen werden.");
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [code, playerId]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setJoining(true);
+    setError("");
+    try {
+      const normalizedCode = code.trim();
+      const player = await joinGame(normalizedCode, name);
+      setCode(normalizedCode);
+      setPlayerId(player.player_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Du konntest dem Quiz nicht beitreten.");
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function handleAnswer(answerIndex: number) {
+    if (!playerId || gameState?.has_answered) return;
+    setAnswering(true);
+    setError("");
+    try {
+      await submitAnswer(code, playerId, answerIndex);
+      setGameState(await getGameState(code, playerId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Antwort konnte nicht gespeichert werden.");
+    } finally {
+      setAnswering(false);
+    }
   }
 
   return (
@@ -43,37 +111,95 @@ function StudentHome() {
         <h1>Bereit für<br /><span>dein Quiz?</span></h1>
         <p>Gib den Zutrittscode ein, den deine Lehrkraft mit dir geteilt hat.</p>
       </div>
-      <form className="panel join-card" onSubmit={handleSubmit}>
-        <label htmlFor="join-code">Zutrittscode</label>
-        <input
-          id="join-code"
-          className="code-input"
-          autoComplete="one-time-code"
-          inputMode="numeric"
-          maxLength={8}
-          placeholder="123456"
-          value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-          required
-        />
-        <label htmlFor="player-name">Dein Name</label>
-        <input
-          id="player-name"
-          autoComplete="nickname"
-          maxLength={24}
-          placeholder="Wie sollen wir dich nennen?"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-        />
-        <button className="button button-primary button-wide" type="submit">
-          Mitspielen
-        </button>
-        <p className="notice" role="status">
-          Die Live-Teilnahme wird im nächsten Schritt mit Supabase verbunden.
-        </p>
-      </form>
+      {playerId ? (
+        <div className="panel join-card game-card">
+          <span className="eyebrow">{gameState?.title ?? "Quiz"} · {name}</span>
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          {!gameState ? (
+            <p role="status">Quiz wird geladen ...</p>
+          ) : gameState.status === "waiting" ? (
+            <>
+              <h2>Du bist dabei!</h2>
+              <p>Warte, bis deine Lehrkraft das Quiz startet.</p>
+            </>
+          ) : gameState.status === "finished" ? (
+            <>
+              <h2>Quiz beendet!</h2>
+              <p>Dein Ergebnis: <strong>{gameState.score} Punkte</strong></p>
+              {gameState.leaderboard && <Leaderboard players={gameState.leaderboard} />}
+            </>
+          ) : (
+            <>
+              <p className="question-progress">Frage {gameState.current_question + 1} von {gameState.question_count}</p>
+              <h2>{gameState.question?.prompt}</h2>
+              {gameState.has_answered ? (
+                <p className={gameState.is_correct ? "answer-feedback correct" : "answer-feedback incorrect"} role="status">
+                  {gameState.is_correct ? "Richtig! Gut gemacht." : "Leider falsch."} · Punkte: {gameState.score}
+                  <br />Warte auf die nächste Frage.
+                </p>
+              ) : (
+                <div className="player-answer-list">
+                  {gameState.question?.answers.map((answer, index) => (
+                    <button
+                      className={`player-answer answer-${index}`}
+                      key={index}
+                      disabled={answering}
+                      onClick={() => void handleAnswer(index)}
+                    >
+                      <span className="answer-number">{index + 1}</span>{answer}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <form className="panel join-card" onSubmit={handleSubmit}>
+          <label htmlFor="join-code">Zutrittscode</label>
+          <input
+            id="join-code"
+            className="code-input"
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            maxLength={6}
+            minLength={6}
+            placeholder="123456"
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+            required
+          />
+          <label htmlFor="player-name">Dein Name</label>
+          <input
+            id="player-name"
+            autoComplete="nickname"
+            maxLength={24}
+            placeholder="Wie sollen wir dich nennen?"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+          />
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="button button-primary button-wide" type="submit" disabled={joining}>
+            {joining ? "Beitritt läuft ..." : "Mitspielen"}
+          </button>
+          <p className="notice">Frag deine Lehrkraft nach dem sechsstelligen Zutrittscode.</p>
+        </form>
+      )}
     </section>
+  );
+}
+
+function Leaderboard({ players }: { players: { name: string; score: number }[] }) {
+  return (
+    <ol className="leaderboard">
+      {players.map((player, index) => (
+        <li key={`${player.name}-${index}`}>
+          <span>{index + 1}. {player.name}</span>
+          <strong>{player.score}</strong>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -90,18 +216,665 @@ function validateQuiz(quiz: Quiz): string | null {
   return null;
 }
 
+function TeacherDashboard({
+  email,
+  onSignOut,
+}: {
+  email: string | undefined;
+  onSignOut: () => void;
+}) {
+  const navigate = useNavigate();
+  const [quizzes, setQuizzes] = useState<SavedQuiz[]>([]);
+  const [game, setGame] = useState<TeacherGameState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void loadSavedQuizzes()
+      .then((saved) => { if (active) setQuizzes(saved); })
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : "Quizze konnten nicht geladen werden.");
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!game) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const state = await getTeacherGameState(game.code);
+        if (active) {
+          setGame(state);
+          setError("");
+        }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Spielstatus konnte nicht geladen werden.");
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [game?.code]);
+
+  async function handleStartQuiz(quiz: SavedQuiz) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const code = await startGame(quiz.id);
+      setGame(await getTeacherGameState(code));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht gestartet werden.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAdvanceGame() {
+    if (!game) return;
+    setBusy(true);
+    setError("");
+    try {
+      await advanceGame(game.code);
+      setGame(await getTeacherGameState(game.code));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht fortgesetzt werden.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCopyCode() {
+    if (!game) return;
+    try {
+      await navigator.clipboard.writeText(game.code);
+      setNotice("Zutrittscode wurde kopiert.");
+    } catch {
+      setNotice("Kopieren nicht möglich. Bitte notiere den Code.");
+    }
+  }
+
+  async function handleCopyConsoleUrl() {
+    if (!game) return;
+    const consoleUrl = `${window.location.origin}${import.meta.env.BASE_URL}lehrer/konsole/${game.code}`;
+    try {
+      await navigator.clipboard.writeText(consoleUrl);
+      setNotice("Link zur Steuerkonsole kopiert. Öffne ihn auf dem zweiten Gerät.");
+    } catch {
+      setNotice(`Steuerkonsolen-Link: ${consoleUrl}`);
+    }
+  }
+
+  const visibleQuizzes = quizzes.filter((quiz) =>
+    quiz.title.toLocaleLowerCase("de").includes(search.toLocaleLowerCase("de")),
+  );
+
+  return (
+    <section className="dashboard-page">
+      <div className="dashboard-hero">
+        <div className="dashboard-hero-top">
+          <span className="dashboard-greeting">Lehrerbereich</span>
+          <div className="dashboard-account">
+            <span>{email}</span>
+            <button className="dashboard-signout" onClick={onSignOut}>Abmelden</button>
+          </div>
+        </div>
+        <div className="dashboard-welcome">
+          <div>
+            <span className="dashboard-kicker">Dein Unterricht, spielerisch</span>
+            <h1>Was möchtest du<br />heute quizzen?</h1>
+            <p>Erstelle ein neues Quiz oder starte eines aus deiner Sammlung.</p>
+          </div>
+          <button
+            className="button dashboard-create"
+            onClick={() => navigate("/lehrer/editor")}
+          >
+            <span aria-hidden="true">＋</span> Neues Quiz erstellen
+          </button>
+        </div>
+        <div className="dashboard-stats">
+          <div><strong>{quizzes.length}</strong><span>Gespeicherte Quizze</span></div>
+          <div><strong>{quizzes.reduce((sum, quiz) => sum + quiz.questions.length, 0)}</strong><span>Fragen insgesamt</span></div>
+          <div><strong>{game ? game.players.length : "—"}</strong><span>Teilnehmende im aktuellen Spiel</span></div>
+        </div>
+      </div>
+
+      {(error || notice) && (
+        <p className={error ? "auth-error dashboard-message" : "form-message dashboard-message"} role={error ? "alert" : "status"}>
+          {error || notice}
+        </p>
+      )}
+
+      {game && (
+        <section className="dashboard-section">
+          <div className="section-title-row">
+            <div>
+              <span className="eyebrow">Live-Spiel</span>
+              <h2>Dein Quiz läuft</h2>
+            </div>
+            <button className="text-button" onClick={() => setGame(null)}>Ausblenden</button>
+          </div>
+          <div className="panel dashboard-live-card">
+            <div className="live-code-block">
+              <span>Zutrittscode</span>
+              <strong>{game.code}</strong>
+              <button className="button button-secondary" onClick={() => void handleCopyCode()}>Code kopieren</button>
+              <button
+                className="button button-secondary"
+                onClick={() => navigate(`/lehrer/konsole/${game.code}`)}
+              >
+                Steuerkonsole öffnen
+              </button>
+              <button className="button button-secondary" onClick={() => void handleCopyConsoleUrl()}>
+                Konsolen-Link kopieren
+              </button>
+              <button
+                className="button button-secondary"
+                onClick={() => window.open(`${window.location.origin}${import.meta.env.BASE_URL}tafel/${game.code}`, "_blank", "noopener,noreferrer")}
+              >
+                Tafel öffnen
+              </button>
+            </div>
+            <div className="live-details">
+              <div className="game-controls">
+                <p>
+                  {game.status === "waiting"
+                    ? "Warte auf deine Klasse. Starte, wenn alle bereit sind."
+                    : game.status === "finished"
+                      ? "Das Quiz ist beendet."
+                      : `Frage ${game.current_question + 1} von ${game.question_count}`}
+                </p>
+                {game.status !== "finished" && (
+                  <button className="button button-primary" onClick={() => void handleAdvanceGame()} disabled={busy}>
+                    {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : "Nächste Frage"}
+                  </button>
+                )}
+              </div>
+              <h3>Teilnehmende <span className="count-badge">{game.players.length}</span></h3>
+              {game.players.length
+                ? <Leaderboard players={game.players} />
+                : <p className="notice">Noch ist niemand beigetreten.</p>}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="dashboard-section">
+        <div className="section-title-row">
+          <div>
+            <span className="eyebrow">Deine Bibliothek</span>
+            <h2>Meine Quizze</h2>
+          </div>
+          <div className="library-actions">
+            <label className="search-field">
+              <span className="visually-hidden">Quizze durchsuchen</span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Quiz suchen ..."
+              />
+            </label>
+            <button className="button button-secondary" onClick={() => navigate("/lehrer/editor", { state: { importQuiz: true } })}>
+              Quiz importieren
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="empty-library" role="status">Deine Quizze werden geladen ...</p>
+        ) : visibleQuizzes.length > 0 ? (
+          <div className="quiz-library">
+            {visibleQuizzes.map((quiz, index) => (
+              <article className="panel quiz-tile" key={quiz.id}>
+                <div className={`quiz-tile-art art-${index % 4}`}>
+                  <span>{quiz.title.trim().charAt(0).toLocaleUpperCase("de") || "Q"}</span>
+                  <span className="tile-question-count">{quiz.questions.length} {quiz.questions.length === 1 ? "Frage" : "Fragen"}</span>
+                </div>
+                <div className="quiz-tile-content">
+                  <h3>{quiz.title}</h3>
+                  <p>Vier Antwortmöglichkeiten pro Frage</p>
+                  <div className="quiz-tile-actions">
+                    <button
+                      className="button button-secondary"
+                      onClick={() => navigate("/lehrer/editor", { state: { quiz } })}
+                    >
+                      Bearbeiten
+                    </button>
+                    <button className="button button-primary" onClick={() => void handleStartQuiz(quiz)} disabled={busy || Boolean(game && game.status !== "finished")}>
+                      Quiz starten
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-library panel">
+            <span className="empty-library-icon" aria-hidden="true">✦</span>
+            <h3>{search ? "Kein Quiz gefunden" : "Deine Quiz-Bibliothek wartet auf dich"}</h3>
+            <p>{search ? "Versuche einen anderen Suchbegriff." : "Erstelle dein erstes Quiz oder importiere eine vorhandene Quizdatei."}</p>
+            {!search && (
+              <button className="button button-primary" onClick={() => navigate("/lehrer/editor")}>
+                Erstes Quiz erstellen
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function TeacherConsole({ code, email }: { code: string; email: string | undefined }) {
+  const navigate = useNavigate();
+  const [game, setGame] = useState<TeacherGameState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const displayUrl = `${window.location.origin}${import.meta.env.BASE_URL}tafel/${code}`;
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const state = await getTeacherGameState(code);
+        if (active) {
+          setGame(state);
+          setError("");
+        }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Spielstatus konnte nicht geladen werden.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [code]);
+
+  async function handleAdvance() {
+    setBusy(true);
+    setError("");
+    try {
+      await advanceGame(code);
+      setGame(await getTeacherGameState(code));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht fortgesetzt werden.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyDisplayUrl() {
+    try {
+      await navigator.clipboard.writeText(displayUrl);
+      setNotice("Tafel-Link wurde kopiert. Öffne ihn auf dem Anzeigegerät.");
+    } catch {
+      setNotice(`Tafel-Link: ${displayUrl}`);
+    }
+  }
+
+  return (
+    <section className="console-page">
+      <header className="console-header">
+        <div>
+          <button className="back-link" onClick={() => navigate("/lehrer")}>← Zur Übersicht</button>
+          <span className="eyebrow">Steuerkonsole · {email}</span>
+          <h1>Quiz-Steuerung</h1>
+          <p>Diese Seite ist für dein Steuergerät. Die Tafel kann auf einem anderen Bildschirm geöffnet sein.</p>
+        </div>
+        <Link className="button button-secondary" to={`/tafel/${code}`} target="_blank" rel="noreferrer">
+          Tafel in neuem Tab öffnen
+        </Link>
+      </header>
+      {error && <p className="auth-error" role="alert">{error}</p>}
+      {notice && <p className="form-message" role="status">{notice}</p>}
+      {loading ? (
+        <p className="auth-loading" role="status">Quiz wird geladen ...</p>
+      ) : game ? (
+        <>
+          <section className="panel console-code-card">
+            <div>
+              <span className="eyebrow">Zutrittscode für die Klasse</span>
+              <strong>{game.code}</strong>
+              <p>Die Schüler treten auf der Startseite mit diesem Code und ihrem Namen bei.</p>
+            </div>
+            <div className="console-link-actions">
+              <button className="button button-secondary" onClick={() => void copyDisplayUrl()}>
+                Tafel-Link kopieren
+              </button>
+              <button
+                className="button button-primary console-advance"
+                onClick={() => void handleAdvance()}
+                disabled={busy || game.status === "finished"}
+              >
+                {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : game.status === "finished" ? "Quiz beendet" : "Nächste Frage"}
+              </button>
+            </div>
+          </section>
+          <div className="console-grid">
+            <section className="panel console-status-card">
+              <span className="eyebrow">Spielstatus</span>
+              <h2>
+                {game.status === "waiting"
+                  ? "Warte auf die Klasse"
+                  : game.status === "finished"
+                    ? "Quiz abgeschlossen"
+                    : `Frage ${game.current_question + 1} von ${game.question_count}`}
+              </h2>
+              <p>
+                {game.status === "waiting"
+                  ? "Wenn alle Schüler auf der Tafel erscheinen, kannst du das Quiz starten."
+                  : game.status === "finished"
+                    ? "Das Ergebnis wird auf der Tafel angezeigt."
+                    : "Die aktuelle Frage und Antworten werden auf der Tafel angezeigt."}
+              </p>
+            </section>
+            <section className="panel console-players-card">
+              <h2>Teilnehmende <span className="count-badge">{game.players.length}</span></h2>
+              {game.players.length
+                ? <Leaderboard players={game.players} />
+                : <p className="notice">Noch ist niemand beigetreten.</p>}
+            </section>
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function ProjectorDisplay() {
+  const { code = "" } = useParams();
+  const [game, setGame] = useState<DisplayGameState | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const state = await getDisplayGameState(code);
+        if (active) {
+          setGame(state);
+          setError("");
+        }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Tafelansicht konnte nicht geladen werden.");
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [code]);
+
+  return (
+    <section className="projector-screen">
+      <header className="projector-header">
+        <Link className="projector-brand" to="/">
+          <span className="brand-mark">Q</span> Quizzeit
+        </Link>
+        <div className="projector-room-code"><span>SPIELCODE</span><strong>{code}</strong></div>
+        <span className="projector-live"><i /> LIVE</span>
+      </header>
+      {error ? (
+        <div className="projector-message">
+          <h1>Quiz nicht gefunden</h1>
+          <p>{error}</p>
+          <Link className="button button-secondary" to="/">Zur Startseite</Link>
+        </div>
+      ) : !game ? (
+        <div className="projector-message" role="status">
+          <span className="projector-spinner" />
+          <h1>Verbinde mit dem Quiz ...</h1>
+        </div>
+      ) : game.status === "waiting" ? (
+        <div className="projector-lobby">
+          <div className="projector-lobby-main">
+            <span className="projector-kicker">Macht euch bereit!</span>
+            <h1>{game.title}</h1>
+            <p>Gehe auf die Quiz-Seite und gib diesen Code ein:</p>
+            <strong className="projector-big-code">{game.code}</strong>
+            <div className="projector-join-url">{window.location.origin}{import.meta.env.BASE_URL}</div>
+          </div>
+          <aside className="projector-participants panel">
+            <h2>Teilnehmende <span>{game.players.length}</span></h2>
+            {game.players.length ? (
+              <ul>{game.players.map((player, index) => <li key={`${player.name}-${index}`}><span>{player.name}</span><i>✓</i></li>)}</ul>
+            ) : <p>Die Klasse wartet auf den Start ...</p>}
+          </aside>
+        </div>
+      ) : game.status === "finished" ? (
+        <div className="projector-finished">
+          <span className="projector-kicker">Das war's!</span>
+          <h1>Quiz beendet</h1>
+          <p>Hier ist die Rangliste.</p>
+          <ol className="projector-podium">
+            {game.players.map((player, index) => (
+              <li key={`${player.name}-${index}`} className={index < 3 ? `podium-${index + 1}` : ""}>
+                <span className="podium-rank">{index + 1}</span>
+                <span>{player.name}</span>
+                <strong>{player.score}</strong>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : (
+        <div className="projector-question-layout">
+          <section className="projector-question">
+            <div className="projector-question-meta">
+              <span>{game.title}</span>
+              <strong>FRAGE {game.current_question + 1} <i>/</i> {game.question_count}</strong>
+            </div>
+            <div className="projector-question-content">
+              <span className="projector-kicker">Was ist die richtige Antwort?</span>
+              <h1>{game.question?.prompt}</h1>
+              <div className="projector-answers">
+                {game.question?.answers.map((answer, index) => (
+                  <div className={`projector-answer projector-answer-${index}`} key={index}>
+                    <span className="projector-answer-shape">{["▲", "◆", "●", "■"][index]}</span>
+                    <span>{answer}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="projector-progress"><span style={{ width: `${((game.current_question + 1) / game.question_count) * 100}%` }} /></div>
+          </section>
+          <aside className="projector-question-players">
+            <div className="projector-answer-count">{game.players.length}<span>mit dabei</span></div>
+            <h2>Spieler</h2>
+            <ul>{game.players.slice(0, 12).map((player, index) => <li key={`${player.name}-${index}`}>{player.name}</li>)}</ul>
+            {game.players.length > 12 && <span className="projector-more">und {game.players.length - 12} weitere ...</span>}
+          </aside>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TeacherGamePanel({
+  game,
+  onAdvance,
+  busy,
+}: {
+  game: TeacherGameState;
+  onAdvance: () => void;
+  busy: boolean;
+}) {
+  const [copyMessage, setCopyMessage] = useState("");
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(game.code);
+      setCopyMessage("Code kopiert.");
+    } catch {
+      setCopyMessage("Kopieren nicht möglich. Bitte notiere den Code.");
+    }
+  }
+
+  return (
+    <section className="panel active-game">
+      <div className="game-code">
+        <div>
+          <span className="eyebrow">Zutrittscode für Schüler</span>
+          <strong>{game.code}</strong>
+          <p>Schüler öffnen die Startseite und geben diesen Code sowie ihren Namen ein.</p>
+        </div>
+        <button
+          className="button button-secondary"
+          onClick={() => void copyCode()}
+        >
+          Code kopieren
+        </button>
+      </div>
+      <div className="game-screen-links">
+        <Link className="button button-secondary" to={`/lehrer/konsole/${game.code}`}>
+          Steuerkonsole auf anderem Gerät
+        </Link>
+        <Link className="button button-secondary" to={`/tafel/${game.code}`} target="_blank" rel="noreferrer">
+          Tafel öffnen
+        </Link>
+      </div>
+      {copyMessage && <p className="form-message" role="status">{copyMessage}</p>}
+      <div className="game-controls">
+        <p>
+          {game.status === "waiting"
+            ? "Warte auf Schüler. Starte das Quiz, wenn alle bereit sind."
+            : game.status === "finished"
+              ? "Das Quiz ist beendet."
+              : `Frage ${game.current_question + 1} von ${game.question_count}`}
+        </p>
+        {game.status !== "finished" && (
+          <button className="button button-primary" onClick={onAdvance} disabled={busy}>
+            {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : "Nächste Frage"}
+          </button>
+        )}
+      </div>
+      <h3>Teilnehmende <span className="count-badge">{game.players.length}</span></h3>
+      {game.players.length === 0
+        ? <p className="notice">Noch ist niemand beigetreten.</p>
+        : <Leaderboard players={game.players} />}
+    </section>
+  );
+}
+
 function TeacherEditor({
   onSignOut,
   email,
   authError,
+  ownerId,
 }: {
   onSignOut: () => void;
   email: string | undefined;
   authError: string;
+  ownerId: string;
 }) {
-  const [quiz, setQuiz] = useState<Quiz>(starterQuiz);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const editorState = location.state as { quiz?: SavedQuiz; importQuiz?: boolean } | null;
+  const initialQuiz = editorState?.quiz;
+  const editingSavedQuiz = Boolean(initialQuiz);
+  const [quiz, setQuiz] = useState<Quiz>(initialQuiz ?? starterQuiz);
+  const [quizId, setQuizId] = useState(initialQuiz?.id ?? null);
   const [message, setMessage] = useState("");
+  const [activeGame, setActiveGame] = useState<TeacherGameState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [gameError, setGameError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editorState?.importQuiz) fileInput.current?.click();
+  }, [editorState?.importQuiz]);
+
+  useEffect(() => {
+    if (!activeGame) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const state = await getTeacherGameState(activeGame.code);
+        if (active) {
+          setActiveGame(state);
+          setGameError("");
+        }
+      } catch (cause) {
+        if (active) setGameError(cause instanceof Error ? cause.message : "Spielstatus konnte nicht geladen werden.");
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeGame?.code]);
+
+  async function handleSaveQuiz() {
+    const validationError = validateQuiz(quiz);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      const saved = await saveQuiz(quiz, ownerId, quizId ?? undefined);
+      setQuizId(saved.id);
+      setMessage("Quiz wurde in Supabase gespeichert.");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Quiz konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStartGame() {
+    const validationError = validateQuiz(quiz);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setGameError("");
+    try {
+      const saved = await saveQuiz(quiz, ownerId, quizId ?? undefined);
+      setQuizId(saved.id);
+      const code = await startGame(saved.id);
+      setActiveGame(await getTeacherGameState(code));
+    } catch (cause) {
+      setGameError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht gestartet werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAdvanceGame() {
+    if (!activeGame) return;
+    setSaving(true);
+    setGameError("");
+    try {
+      await advanceGame(activeGame.code);
+      setActiveGame(await getTeacherGameState(activeGame.code));
+    } catch (cause) {
+      setGameError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht fortgesetzt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function updateQuestion(index: number, update: Partial<QuizQuestion>) {
     setQuiz((current) => ({
@@ -144,6 +917,7 @@ function TeacherEditor({
     try {
       const imported = parseQuiz(JSON.parse(await file.text()));
       setQuiz(imported);
+      setQuizId(null);
       setMessage("Quiz wurde erfolgreich geladen.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Die Quizdatei konnte nicht gelesen werden.");
@@ -156,8 +930,9 @@ function TeacherEditor({
     <section className="editor-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">Lehrerbereich · Prototyp</span>
-          <h1>Quiz erstellen</h1>
+          <button className="back-link" onClick={() => navigate("/lehrer")}>← Zur Übersicht</button>
+          <span className="eyebrow">Quiz-Editor</span>
+          <h1>{editingSavedQuiz ? "Quiz bearbeiten" : "Quiz erstellen"}</h1>
           <p>Erstelle Fragen mit vier Antwortmöglichkeiten und markiere die richtige.</p>
         </div>
         <div className="toolbar">
@@ -183,10 +958,18 @@ function TeacherEditor({
       </div>
 
       {authError && <p className="auth-error" role="alert">{authError}</p>}
-      <div className="prototype-banner" role="note">
-        <strong>Prototyp:</strong> Anmeldung und gemeinsames Live-Spiel benötigen noch die Verbindung zu Supabase.
-        Quizdateien kannst du bereits erstellen, herunterladen und wieder hochladen.
+      <div className="quiz-actions">
+        <button className="button button-secondary" onClick={() => void handleSaveQuiz()} disabled={saving}>
+          Quiz speichern
+        </button>
+        <button className="button button-primary" onClick={() => void handleStartGame()} disabled={saving}>
+          {saving ? "Bitte warten ..." : "Quiz starten"}
+        </button>
       </div>
+      {gameError && <p className="auth-error" role="alert">{gameError}</p>}
+      {activeGame && (
+        <TeacherGamePanel game={activeGame} onAdvance={() => void handleAdvanceGame()} busy={saving} />
+      )}
 
       <label className="field-label" htmlFor="quiz-title">Quiz-Titel</label>
       <input
@@ -336,6 +1119,7 @@ function TeacherLogin() {
 }
 
 function TeacherPage() {
+  const location = useLocation();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState("");
@@ -383,7 +1167,23 @@ function TeacherPage() {
     );
   }
 
-  return <TeacherEditor onSignOut={signOut} email={session.user.email} authError={authError} />;
+  if (location.pathname.replace(/\/+$/, "").endsWith("/editor")) {
+    return (
+      <TeacherEditor
+        onSignOut={signOut}
+        email={session.user.email}
+        authError={authError}
+        ownerId={session.user.id}
+      />
+    );
+  }
+
+  const consoleMatch = location.pathname.match(/\/lehrer\/konsole\/(\d{6})\/?$/);
+  if (consoleMatch) {
+    return <TeacherConsole code={consoleMatch[1]} email={session.user.email} />;
+  }
+
+  return <TeacherDashboard email={session.user.email} onSignOut={signOut} />;
 }
 
 function NotFound() {
@@ -400,7 +1200,8 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<StudentHome />} />
-        <Route path="/lehrer" element={<TeacherPage />} />
+        <Route path="/tafel/:code" element={<ProjectorDisplay />} />
+        <Route path="/lehrer/*" element={<TeacherPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Layout>
