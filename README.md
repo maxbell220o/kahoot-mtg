@@ -30,7 +30,14 @@ Im [Lehrerbereich](/lehrer) lassen sich Quizze erstellen, als JSON herunterladen
 
 ## GitHub Pages
 
-Der Workflow in `.github/workflows/pages.yml` baut die Anwendung bei jedem Push auf `master` und veröffentlicht sie auf GitHub Pages. In den Repository-Einstellungen muss **Pages → Build and deployment → Source: GitHub Actions** ausgewählt sein. Der Build passt den Asset-Pfad automatisch an den Repository-Namen an und legt eine SPA-Fallback-Seite für `/lehrer` an.
+Die Seite wird ohne GitHub Actions direkt aus dem Ordner `docs/` im `master`-Branch veröffentlicht:
+
+1. Prüfe, dass `.env.local` Project URL und Publishable Key für Supabase enthält.
+2. Baue die fertige Website lokal mit `npm run build`. Vite erzeugt alle Dateien in `docs/`, einschließlich eines Fallbacks für Direktlinks wie `/lehrer` und `/tafel/CODE`.
+3. Lade den aktualisierten Ordner `docs/` zusammen mit deinen Quellcodeänderungen in den `master`-Branch auf GitHub hoch.
+4. Öffne im Repository **Settings → Pages** und wähle bei **Build and deployment → Source** die Option **Deploy from a branch**. Wähle den Branch `master` und den Ordner `/docs`, dann speichere.
+
+GitHub Pages liefert danach den bereits lokal gebauten Inhalt direkt aus `docs/` aus. Nach jeder Änderung am Programm muss erneut `npm run build` ausgeführt und der neue Ordner `docs/` hochgeladen werden. Die GitHub-Actions-Veröffentlichung wird nicht verwendet.
 
 ## Lehrer-Anmeldung mit Supabase
 

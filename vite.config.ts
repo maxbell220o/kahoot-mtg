@@ -1,12 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-
-const repositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1];
+import { copyFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export default defineConfig({
-  plugins: [react()],
-  base: repositoryName ? `/${repositoryName}/` : "/",
+  base: "/kahoot-mtg/",
   build: {
+    outDir: "docs",
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -15,4 +15,13 @@ export default defineConfig({
       },
     },
   },
+  plugins: [
+    react(),
+    {
+      name: "github-pages-spa-fallback",
+      writeBundle() {
+        copyFileSync(resolve("docs/index.html"), resolve("docs/404.html"));
+      },
+    },
+  ],
 });
