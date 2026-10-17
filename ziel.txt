@@ -1,0 +1,16 @@
+ich möchte eine kahoot ähnliches system das algemeine ziel ist es github pages und superbase deploy bar  zu machen 
+züklus des lehrers :
+1. öffnet /lehrer
+2. meldet sich mit benutzername und passwort an.
+3. erstellt ein quiz 
+4. lät es runter als datei
+5. lät es hoch um das quiz zu starten
+6. es wird ein zutritscode für die schüler generiert
+
+züklus des schülers:
+1. öfnet /
+2. gibt den code ein
+3. gibt den namen ein 
+4. tritt bei und nimt am quiz teil
+
+wir fangen zum testen mit der 4 antwortmöglichkeiten frage ann.
