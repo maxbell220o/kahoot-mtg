@@ -48,6 +48,7 @@ function StudentHome() {
   const [name, setName] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [gameState, setGameState] = useState<PublicGameState | null>(null);
+  const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
   const [answering, setAnswering] = useState(false);
@@ -74,6 +75,10 @@ function StudentHome() {
     };
   }, [code, playerId]);
 
+  useEffect(() => {
+    setSelectedAnswers([]);
+  }, [code, gameState?.current_question]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setJoining(true);
@@ -90,12 +95,22 @@ function StudentHome() {
     }
   }
 
-  async function handleAnswer(answerIndex: number) {
+  function toggleAnswer(answerIndex: number) {
+    setSelectedAnswers((current) => current.includes(answerIndex)
+      ? current.filter((index) => index !== answerIndex)
+      : [...current, answerIndex]);
+  }
+
+  async function handleAnswer() {
     if (!playerId || gameState?.has_answered) return;
+    if (selectedAnswers.length === 0) {
+      setError("Wähle mindestens eine Antwort aus.");
+      return;
+    }
     setAnswering(true);
     setError("");
     try {
-      await submitAnswer(code, playerId, answerIndex);
+      await submitAnswer(code, playerId, selectedAnswers);
       setGameState(await getGameState(code, playerId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Antwort konnte nicht gespeichert werden.");
@@ -141,14 +156,23 @@ function StudentHome() {
                 <div className="player-answer-list">
                   {gameState.question?.answers.map((answer, index) => (
                     <button
-                      className={`player-answer answer-${index}`}
+                      className={`player-answer answer-${index % 4} ${selectedAnswers.includes(index) ? "player-answer-selected" : ""}`}
                       key={index}
                       disabled={answering}
-                      onClick={() => void handleAnswer(index)}
+                      aria-pressed={selectedAnswers.includes(index)}
+                      onClick={() => toggleAnswer(index)}
                     >
                       <span className="answer-number">{index + 1}</span>{answer}
                     </button>
                   ))}
+                  <p className="answer-select-hint">Du kannst mehrere Antworten auswählen.</p>
+                  <button
+                    className="button button-primary button-wide"
+                    disabled={answering || selectedAnswers.length === 0}
+                    onClick={() => void handleAnswer()}
+                  >
+                    {answering ? "Antwort wird gesendet ..." : "Antwort bestätigen"}
+                  </button>
                 </div>
               )}
             </>
@@ -215,8 +239,11 @@ function validateQuiz(quiz: Quiz): string | null {
     if (question.answers.some((answer) => !answer.trim())) {
       return `Bitte fülle alle ${question.answers.length} Antworten bei Frage ${index + 1} aus.`;
     }
-    if (question.correctAnswer < 0 || question.correctAnswer >= question.answers.length) {
-      return `Bitte markiere eine richtige Antwort bei Frage ${index + 1}.`;
+    if (
+      question.correctAnswers.length === 0 ||
+      question.correctAnswers.some((answer) => answer < 0 || answer >= question.answers.length)
+    ) {
+      return `Bitte markiere mindestens eine richtige Antwort bei Frage ${index + 1}.`;
     }
   }
   return null;
@@ -780,13 +807,9 @@ function TeacherGamePanel({
 }
 
 function TeacherEditor({
-  onSignOut,
-  email,
   authError,
   ownerId,
 }: {
-  onSignOut: () => void;
-  email: string | undefined;
   authError: string;
   ownerId: string;
 }) {
@@ -801,6 +824,7 @@ function TeacherEditor({
   const [activeGame, setActiveGame] = useState<TeacherGameState | null>(null);
   const [saving, setSaving] = useState(false);
   const [gameError, setGameError] = useState("");
+  const [expandedQuestion, setExpandedQuestion] = useState<number | null>(0);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -905,16 +929,36 @@ function TeacherEditor({
     updateQuestion(questionIndex, { answers: [...question.answers, ""] });
   }
 
+  function addQuestion() {
+    setExpandedQuestion(quiz.questions.length);
+    setQuiz((current) => ({
+      ...current,
+      questions: [...current.questions, createEmptyQuestion()],
+    }));
+    setMessage("");
+  }
+
+  function removeQuestion(questionIndex: number) {
+    const questions = quiz.questions.filter((_, index) => index !== questionIndex);
+    setExpandedQuestion((expanded) => {
+      if (expanded === null || expanded === questionIndex) {
+        return questions.length ? Math.min(questionIndex, questions.length - 1) : null;
+      }
+      return expanded > questionIndex ? expanded - 1 : expanded;
+    });
+    setQuiz((current) => ({ ...current, questions }));
+    setMessage("");
+  }
+
   function removeAnswer(questionIndex: number, answerIndex: number) {
     const question = quiz.questions[questionIndex];
     if (question.answers.length <= 2) return;
     const answers = question.answers.filter((_, index) => index !== answerIndex);
-    const correctAnswer = question.correctAnswer === answerIndex
-      ? 0
-      : question.correctAnswer > answerIndex
-        ? question.correctAnswer - 1
-        : question.correctAnswer;
-    updateQuestion(questionIndex, { answers, correctAnswer });
+    const remainingCorrectAnswers = question.correctAnswers
+      .filter((index) => index !== answerIndex)
+      .map((index) => index > answerIndex ? index - 1 : index);
+    const correctAnswers = remainingCorrectAnswers.length ? remainingCorrectAnswers : [0];
+    updateQuestion(questionIndex, { answers, correctAnswers });
   }
 
   function exportQuiz() {
@@ -942,6 +986,7 @@ function TeacherEditor({
       const imported = parseQuiz(JSON.parse(await file.text()));
       setQuiz(imported);
       setQuizId(null);
+      setExpandedQuestion(0);
       setMessage("Quiz wurde erfolgreich geladen.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Die Quizdatei konnte nicht gelesen werden.");
@@ -957,13 +1002,9 @@ function TeacherEditor({
           <button className="back-link" onClick={() => navigate("/lehrer")}>← Zur Übersicht</button>
           <span className="eyebrow">Quiz-Editor</span>
           <h1>{editingSavedQuiz ? "Quiz bearbeiten" : "Quiz erstellen"}</h1>
-          <p>Erstelle Fragen mit zwei bis sechs Antwortmöglichkeiten und markiere die richtige.</p>
+          <p>{quiz.title || "Unbenanntes Quiz"} · {quiz.questions.length} Fragen</p>
         </div>
         <div className="toolbar">
-          <span className="account-email">{email}</span>
-          <button className="button button-secondary" onClick={onSignOut}>
-            Abmelden
-          </button>
           <input
             ref={fileInput}
             className="visually-hidden"
@@ -973,32 +1014,24 @@ function TeacherEditor({
             aria-label="Quizdatei hochladen"
           />
           <button className="button button-secondary" onClick={() => fileInput.current?.click()}>
-            Quiz hochladen
+            Quiz importieren
           </button>
-          <button className="button button-primary" onClick={exportQuiz}>
-            Quiz herunterladen
+          <button className="button button-secondary" onClick={exportQuiz}>
+            JSON exportieren
           </button>
         </div>
       </div>
 
       {authError && <p className="auth-error" role="alert">{authError}</p>}
-      <div className="quiz-actions">
-        <button className="button button-secondary" onClick={() => void handleSaveQuiz()} disabled={saving}>
-          Quiz speichern
-        </button>
-        <button className="button button-primary" onClick={() => void handleStartGame()} disabled={saving}>
-          {saving ? "Bitte warten ..." : "Quiz starten"}
-        </button>
-      </div>
-      {gameError && <p className="auth-error" role="alert">{gameError}</p>}
       {activeGame && (
         <TeacherGamePanel game={activeGame} onAdvance={() => void handleAdvanceGame()} busy={saving} />
       )}
+      {gameError && <p className="auth-error" role="alert">{gameError}</p>}
 
       <section className="editor-setup panel">
         <span className="editor-step">1</span>
         <div className="editor-setup-content">
-          <label className="field-label" htmlFor="quiz-title">Wie soll dein Quiz heißen?</label>
+          <label className="field-label" htmlFor="quiz-title">Quiz-Titel</label>
           <input
             id="quiz-title"
             className="title-input"
@@ -1010,7 +1043,7 @@ function TeacherEditor({
             }}
             placeholder="Zum Beispiel: Planeten unseres Sonnensystems"
           />
-          <span className="field-hint">Ein kurzer Titel hilft dir, dein Quiz später wiederzufinden.</span>
+          <span className="field-hint">Gib deinem Quiz einen kurzen, leicht wiederzufindenden Namen.</span>
         </div>
       </section>
 
@@ -1018,14 +1051,11 @@ function TeacherEditor({
         <div>
           <span className="eyebrow">Schritt 2</span>
           <h2>Deine Fragen <span className="count-badge">{quiz.questions.length}</span></h2>
-          <p>Schreibe eine Frage, ergänze 2 bis 6 Antworten und wähle die richtige aus.</p>
+          <p>Jede Frage braucht mindestens 2 und höchstens 6 Antworten.</p>
         </div>
         <button
           className="button button-secondary"
-          onClick={() => setQuiz((current) => ({
-            ...current,
-            questions: [...current.questions, createEmptyQuestion()],
-          }))}
+          onClick={addQuestion}
         >
           <span aria-hidden="true">＋</span> Frage hinzufügen
         </button>
@@ -1033,96 +1063,132 @@ function TeacherEditor({
 
       <div className="question-list">
         {quiz.questions.map((question, questionIndex) => (
-          <article className="panel question-card" key={questionIndex}>
+          <article className={`panel question-card ${expandedQuestion === questionIndex ? "question-card-open" : ""}`} key={questionIndex}>
             <div className="question-card-heading">
-              <div className="question-card-title">
+              <button
+                className="question-card-toggle"
+                type="button"
+                aria-expanded={expandedQuestion === questionIndex}
+                onClick={() => setExpandedQuestion((current) => current === questionIndex ? null : questionIndex)}
+              >
                 <span className="question-number">{String(questionIndex + 1).padStart(2, "0")}</span>
-                <div>
-                  <h3>Frage {questionIndex + 1}</h3>
-                  <span>{question.answers.length} von 6 Antwortmöglichkeiten</span>
-                </div>
-              </div>
+                <span className="question-card-title">
+                  <strong>Frage {questionIndex + 1}</strong>
+                  <span className="question-summary">
+                    {question.prompt.trim() || "Fragetext eingeben"}
+                  </span>
+                </span>
+                <span className="question-card-meta">
+                  {question.answers.length} Antworten
+                  <span className="question-correct-count">
+                    · {question.correctAnswers.length} richtig
+                  </span>
+                  <span className="question-chevron" aria-hidden="true">⌄</span>
+                </span>
+              </button>
               {quiz.questions.length > 1 && (
                 <button
-                  className="text-button danger-text"
-                  onClick={() => setQuiz((current) => ({
-                    ...current,
-                    questions: current.questions.filter((_, index) => index !== questionIndex),
-                  }))}
+                  className="text-button danger-text remove-question"
+                  type="button"
+                  onClick={() => removeQuestion(questionIndex)}
                   aria-label={`Frage ${questionIndex + 1} entfernen`}
                 >
-                  Entfernen
+                  Löschen
                 </button>
               )}
             </div>
-            <label className="field-label" htmlFor={`prompt-${questionIndex}`}>Deine Frage</label>
-            <textarea
-              id={`prompt-${questionIndex}`}
-              maxLength={300}
-              rows={2}
-              value={question.prompt}
-              onChange={(event) => updateQuestion(questionIndex, { prompt: event.target.value })}
-              placeholder="Zum Beispiel: Welcher Planet ist der größte?"
-            />
-            <fieldset className="answers-fieldset">
-              <legend>
-                Antwortmöglichkeiten
-                <span>Wähle „Richtig“ bei der passenden Antwort.</span>
-              </legend>
-              <div className="answer-grid">
-                {question.answers.map((answer, answerIndex) => (
-                  <div className={`answer-option answer-${answerIndex} ${question.correctAnswer === answerIndex ? "is-correct" : ""}`} key={answerIndex}>
-                    <span className="answer-number">{answerIndex + 1}</span>
-                    <input
-                      className="answer-input"
-                      maxLength={120}
-                      value={answer}
-                      onChange={(event) => updateAnswer(questionIndex, answerIndex, event.target.value)}
-                      placeholder={`Antwort ${answerIndex + 1}`}
-                      aria-label={`Antwort ${answerIndex + 1} für Frage ${questionIndex + 1}`}
-                    />
-                    <label className="correct-answer-toggle">
-                      <input
-                        type="radio"
-                        name={`correct-${questionIndex}`}
-                        checked={question.correctAnswer === answerIndex}
-                        onChange={() => updateQuestion(questionIndex, { correctAnswer: answerIndex })}
-                      />
-                      <span>Richtig</span>
-                    </label>
-                    {question.answers.length > 2 && (
-                      <button
-                        className="remove-answer"
-                        type="button"
-                        onClick={() => removeAnswer(questionIndex, answerIndex)}
-                        aria-label={`Antwort ${answerIndex + 1} entfernen`}
-                        title="Antwort entfernen"
-                      >
-                        ×
-                      </button>
-                    )}
+            {expandedQuestion === questionIndex && (
+              <div className="question-card-body">
+                <label className="field-label" htmlFor={`prompt-${questionIndex}`}>Fragetext</label>
+                <textarea
+                  id={`prompt-${questionIndex}`}
+                  maxLength={300}
+                  rows={2}
+                  value={question.prompt}
+                  onChange={(event) => updateQuestion(questionIndex, { prompt: event.target.value })}
+                  placeholder="Zum Beispiel: Welcher Planet ist der größte?"
+                />
+                <fieldset className="answers-fieldset">
+                  <legend>
+                    Antwortmöglichkeiten
+                    <span>Markiere alle richtigen Antworten.</span>
+                  </legend>
+                  <div className="answer-grid">
+                    {question.answers.map((answer, answerIndex) => (
+                      <div className={`answer-option answer-${answerIndex} ${question.correctAnswers.includes(answerIndex) ? "is-correct" : ""}`} key={answerIndex}>
+                        <span className="answer-number">{answerIndex + 1}</span>
+                        <input
+                          className="answer-input"
+                          maxLength={120}
+                          value={answer}
+                          onChange={(event) => updateAnswer(questionIndex, answerIndex, event.target.value)}
+                          placeholder={`Antwort ${answerIndex + 1}`}
+                          aria-label={`Antwort ${answerIndex + 1} für Frage ${questionIndex + 1}`}
+                        />
+                        <label className="correct-answer-toggle">
+                          <input
+                            type="checkbox"
+                            checked={question.correctAnswers.includes(answerIndex)}
+                            onChange={(event) => {
+                              const correctAnswers = event.target.checked
+                                ? [...question.correctAnswers, answerIndex]
+                                : question.correctAnswers.filter((index) => index !== answerIndex);
+                              updateQuestion(questionIndex, { correctAnswers });
+                            }}
+                          />
+                          <span>Richtig</span>
+                        </label>
+                        {question.answers.length > 2 && (
+                          <button
+                            className="remove-answer"
+                            type="button"
+                            onClick={() => removeAnswer(questionIndex, answerIndex)}
+                            aria-label={`Antwort ${answerIndex + 1} entfernen`}
+                            title="Antwort entfernen"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                  <div className="answer-actions">
+                    <button
+                      className="add-answer-button"
+                      type="button"
+                      onClick={() => addAnswer(questionIndex)}
+                      disabled={question.answers.length >= 6}
+                    >
+                      ＋ Antwort hinzufügen
+                    </button>
+                    <span>{question.answers.length} von 6 Antworten · mindestens 2</span>
+                  </div>
+                </fieldset>
               </div>
-              <div className="answer-actions">
-                <button
-                  className="add-answer-button"
-                  type="button"
-                  onClick={() => addAnswer(questionIndex)}
-                  disabled={question.answers.length >= 6}
-                >
-                  ＋ Antwort hinzufügen
-                </button>
-                <span>{question.answers.length < 6
-                  ? `Noch ${6 - question.answers.length} ${6 - question.answers.length === 1 ? "Antwort" : "Antworten"} möglich`
-                  : "Maximal 6 Antworten erreicht"}
-                </span>
-              </div>
-            </fieldset>
+            )}
           </article>
         ))}
       </div>
-      {message && <p className="form-message" role="status">{message}</p>}
+      <div className="editor-bottom">
+        <button className="button button-secondary" onClick={addQuestion}>
+          ＋ Frage hinzufügen
+        </button>
+      </div>
+      {(message || gameError) && <p className={gameError ? "auth-error" : "form-message"} role={gameError ? "alert" : "status"}>{gameError || message}</p>}
+      <div className="editor-action-bar">
+        <div>
+          <strong>{quiz.title || "Unbenanntes Quiz"}</strong>
+          <span>{quiz.questions.length} {quiz.questions.length === 1 ? "Frage" : "Fragen"}</span>
+        </div>
+        <div>
+          <button className="button button-secondary" onClick={() => void handleSaveQuiz()} disabled={saving}>
+            {saving ? "Speichert ..." : "Speichern"}
+          </button>
+          <button className="button button-primary" onClick={() => void handleStartGame()} disabled={saving}>
+            {saving ? "Bitte warten ..." : "Quiz starten"}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -1240,8 +1306,6 @@ function TeacherPage() {
   if (location.pathname.replace(/\/+$/, "").endsWith("/editor")) {
     return (
       <TeacherEditor
-        onSignOut={signOut}
-        email={session.user.email}
         authError={authError}
         ownerId={session.user.id}
       />

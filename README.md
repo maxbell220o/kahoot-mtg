@@ -20,13 +20,13 @@ Im [Lehrerbereich](/lehrer) lassen sich Quizze erstellen, als JSON herunterladen
     {
       "prompt": "Welche Antwort ist richtig?",
       "answers": ["Antwort A", "Antwort B", "Antwort C"],
-      "correctAnswer": 0
+      "correctAnswers": [0, 2]
     }
   ]
 }
 ```
 
-Jede Frage enthält zwei bis sechs Antworten. `correctAnswer` ist der nullbasierte Index der richtigen Antwort innerhalb dieser Liste.
+Jede Frage enthält zwei bis sechs Antworten. `correctAnswers` enthält die nullbasierten Indizes aller richtigen Antworten. Ältere Quizdateien mit `correctAnswer` werden beim Import weiter unterstützt.
 
 ## GitHub Pages
 
@@ -50,7 +50,7 @@ Der Lehrerbereich unter `/lehrer` verwendet Supabase Auth mit E-Mail-Adresse und
 5. In Supabase unter **Authentication → URL Configuration** setze die Site URL auf die veröffentlichte GitHub-Pages-Adresse. Füge diese Adresse zusätzlich zu den Redirect URLs hinzu.
 6. Öffne in Supabase **SQL Editor → New query**, kopiere den Inhalt von `supabase/schema.sql` hinein und klicke **Run**. Das richtet Quiz-, Spiel-, Spieler- und Antworttabellen samt Row-Level-Security und sicheren Spiel-Funktionen ein.
 
-Danach kann eine Lehrkraft ein Quiz speichern oder direkt starten. Während des Spiels zeigt die App einen Zutrittscode; Schüler öffnen `/`, geben Code und Namen ein und beantworten die freigegebenen Fragen. Die App fragt den Spielstatus regelmäßig ab. Richtige Antworten werden serverseitig ausgewertet und nicht vor der Antwort an Schüler ausgeliefert. Eine Multiple-Choice-Frage kann zwei bis sechs Antwortmöglichkeiten enthalten.
+Danach kann eine Lehrkraft ein Quiz speichern oder direkt starten. Während des Spiels zeigt die App einen Zutrittscode; Schüler öffnen `/`, geben Code und Namen ein und beantworten die freigegebenen Fragen. Die App fragt den Spielstatus regelmäßig ab. Antworten werden serverseitig ausgewertet; bei Fragen mit mehreren richtigen Antworten müssen alle korrekten Optionen ausgewählt sein.
 
 Der Publishable key ist für den Einsatz im Browser bestimmt. Verwende niemals den `service_role`-Schlüssel in der App oder in GitHub Pages. Die Datei `supabase/schema.sql` ist für ein frisches Projekt gedacht. Führe sie nicht erneut aus, wenn die Tabellen dort bereits angelegt wurden.
 
@@ -62,4 +62,4 @@ Die Steuerkonsole liegt unter `/lehrer/konsole/CODE`. Öffne diesen Link auf ein
 
 Wenn `schema.sql` bereits im Supabase-Projekt ausgeführt wurde, führe anschließend den Inhalt von `supabase/display-and-console.sql` einmal im SQL Editor aus, damit die Tafel die sichere öffentliche Spielansicht laden kann. Bei einem frischen Projekt: erst `schema.sql`, danach die Migration. Danach veröffentliche die App erneut auf GitHub Pages.
 
-Wenn die bestehende Datenbank schon eingerichtet ist, führe außerdem `supabase/multiple-choice-answers.sql` einmal im SQL Editor aus. Damit können auch Antwort 5 und 6 gespeichert werden; die Funktion weist außerdem ungültige Antwortnummern zurück.
+Wenn die bestehende Datenbank schon eingerichtet ist, führe außerdem `supabase/multiple-choice-answers.sql` einmal im SQL Editor aus. Damit werden zwei bis sechs Optionen und mehrere richtige Antworten unterstützt.

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Quiz } from "./types";
+import { parseQuiz, type Quiz } from "./types";
 
 export interface SavedQuiz extends Quiz {
   id: string;
@@ -48,7 +48,10 @@ export async function loadSavedQuizzes(): Promise<SavedQuiz[]> {
     .select("id,title,questions")
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return data as SavedQuiz[];
+  return data.map((item) => ({
+    id: item.id,
+    ...parseQuiz({ title: item.title, questions: item.questions }),
+  }));
 }
 
 export async function saveQuiz(quiz: Quiz, ownerId: string, quizId?: string): Promise<SavedQuiz> {
@@ -113,12 +116,12 @@ export async function getGameState(code: string, playerId: string): Promise<Publ
 export async function submitAnswer(
   code: string,
   playerId: string,
-  answerIndex: number,
+  answerIndices: number[],
 ): Promise<{ is_correct: boolean; score: number }> {
   const { data, error } = await client().rpc("submit_quiz_answer", {
     p_code: code,
     p_player_id: playerId,
-    p_answer_index: answerIndex,
+    p_answer_indices: answerIndices,
   });
   if (error) throw error;
   return data as { is_correct: boolean; score: number };

@@ -1,7 +1,7 @@
 export interface QuizQuestion {
   prompt: string;
   answers: string[];
-  correctAnswer: number;
+  correctAnswers: number[];
 }
 
 export interface Quiz {
@@ -12,7 +12,7 @@ export interface Quiz {
 export const createEmptyQuestion = (): QuizQuestion => ({
   prompt: "",
   answers: ["", "", "", ""],
-  correctAnswer: 0,
+  correctAnswers: [0],
 });
 
 export function parseQuiz(value: unknown): Quiz {
@@ -43,21 +43,39 @@ export function parseQuiz(value: unknown): Quiz {
       question.answers.length < 2 ||
       question.answers.length > 6 ||
       !question.answers.every(
-        (answer) => typeof answer === "string" && answer.trim() !== "",
-      ) ||
-      !Number.isInteger(question.correctAnswer) ||
-      (question.correctAnswer as number) < 0 ||
-      (question.correctAnswer as number) >= question.answers.length
+        (answer): answer is string => typeof answer === "string" && answer.trim() !== "",
+      )
     ) {
       throw new Error(
-        `Frage ${index + 1} braucht einen Text, zwei bis sechs Antworten und eine davon als richtige Antwort.`,
+        `Frage ${index + 1} braucht einen Text und zwei bis sechs ausgefüllte Antworten.`,
+      );
+    }
+
+    const answers = question.answers;
+    const correctAnswers: unknown[] = Array.isArray(question.correctAnswers)
+      ? question.correctAnswers
+      : Number.isInteger(question.correctAnswer)
+        ? [question.correctAnswer]
+        : [];
+    if (
+      correctAnswers.length === 0 ||
+      !correctAnswers.every(
+        (answer): answer is number =>
+          Number.isInteger(answer) &&
+          (answer as number) >= 0 &&
+          (answer as number) < answers.length,
+      ) ||
+      new Set(correctAnswers).size !== correctAnswers.length
+    ) {
+      throw new Error(
+        `Frage ${index + 1} braucht einen Text, zwei bis sechs Antworten und mindestens eine richtige Antwort.`,
       );
     }
 
     return {
       prompt: question.prompt,
-      answers: [...question.answers],
-      correctAnswer: question.correctAnswer as number,
+      answers: [...answers],
+      correctAnswers: [...correctAnswers],
     };
   });
 
