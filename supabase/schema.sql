@@ -41,7 +41,7 @@ create table public.quiz_answers (
   game_id uuid not null references public.quiz_games(id) on delete cascade,
   player_id uuid not null references public.quiz_players(id) on delete cascade,
   question_index integer not null check (question_index >= 0),
-  answer_index integer not null check (answer_index between 0 and 3),
+  answer_index integer not null check (answer_index between 0 and 5),
   is_correct boolean not null,
   answered_at timestamptz not null default now(),
   unique (player_id, question_index)
@@ -309,6 +309,11 @@ begin
   end if;
 
   select * into v_quiz from public.quizzes where id = v_game.quiz_id;
+  if p_answer_index is null
+    or p_answer_index < 0
+    or p_answer_index >= jsonb_array_length(v_quiz.questions -> v_game.current_question -> 'answers') then
+    raise exception 'Diese Antwort gibt es bei der aktuellen Frage nicht.';
+  end if;
   v_correct := ((v_quiz.questions -> v_game.current_question ->> 'correctAnswer')::integer = p_answer_index);
 
   insert into public.quiz_answers (game_id, player_id, question_index, answer_index, is_correct)

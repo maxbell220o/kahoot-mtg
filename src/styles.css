@@ -231,14 +231,24 @@ h1, h2, h3, p { margin-top: 0; }
 .game-code p, .game-controls p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .game-screen-links { display: flex; gap: 9px; margin-top: 16px; }
 .game-controls { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--line); }
-.title-input { display: block; max-width: 580px; margin-top: 8px; }
+.editor-setup { display: flex; align-items: flex-start; gap: 15px; padding: 20px; }
+.editor-step, .question-number { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; color: var(--purple); background: #efedff; font: 700 14px "Space Grotesk", sans-serif; }
+.editor-setup-content { width: min(100%, 620px); }
+.editor-setup-content .field-label { display: block; margin: 0; font-size: 14px; }
+.title-input { display: block; width: 100%; max-width: none; margin-top: 9px; }
+.field-hint { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; }
 .questions-heading { display: flex; align-items: center; justify-content: space-between; margin: 32px 0 14px; }
-.questions-heading h2 { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 19px "Space Grotesk", sans-serif; }
+.questions-heading h2 { display: flex; align-items: center; gap: 10px; margin: 5px 0; font: 700 22px "Space Grotesk", sans-serif; }
+.questions-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.questions-heading > .button { flex: 0 0 auto; }
 .count-badge { display: inline-grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: #e9e5ff; color: var(--purple); font: 700 12px "DM Sans", sans-serif; }
 .question-list { display: grid; gap: 16px; }
 .question-card { padding: 24px; }
 .question-card-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-.question-card-heading h3 { margin: 0; font: 700 16px "Space Grotesk", sans-serif; }
+.question-card-title { display: flex; align-items: center; gap: 11px; }
+.question-card-title h3 { margin: 0 0 3px; font: 700 16px "Space Grotesk", sans-serif; }
+.question-card-title > div > span { color: var(--muted); font-size: 11px; }
+.question-number { width: 38px; height: 38px; }
 .text-button { border: 0; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-text { color: #c34e61; }
 .question-card textarea { display: block; resize: vertical; margin-top: 8px; }
@@ -246,14 +256,28 @@ h1, h2, h3, p { margin-top: 0; }
 .answers-fieldset legend { margin-bottom: 12px; font-size: 13px; font-weight: 700; }
 .answers-fieldset legend span { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }
 .answer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.answer-option { min-width: 0; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
-.answer-option input[type="radio"] { accent-color: var(--purple); }
+.answer-option { min-width: 0; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 9px; background: #fff; transition: border-color .15s ease, background .15s ease; }
+.answer-option:focus-within { border-color: var(--purple); box-shadow: 0 0 0 3px #6554d91c; }
+.answer-option.is-correct { border-color: #80cba7; background: #f2fbf6; }
 .answer-number { width: 23px; height: 23px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 7px; color: white; font-size: 11px; font-weight: 700; }
 .answer-0 .answer-number { background: #ed6678; }
 .answer-1 .answer-number { background: #4b9de5; }
 .answer-2 .answer-number { background: #eab344; }
 .answer-3 .answer-number { background: #50b888; }
-.answer-input { min-width: 0; padding: 8px 3px; border-color: transparent; }
+.answer-4 .answer-number { background: #8665d7; }
+.answer-5 .answer-number { background: #4d9e9c; }
+.answer-input { min-width: 0; flex: 1; padding: 8px 3px; border: 1px solid transparent; border-radius: 5px; background: transparent; }
+.answer-input:focus { border-color: transparent !important; box-shadow: none !important; }
+.correct-answer-toggle { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 6px 7px; border-radius: 7px; color: #767287; font-size: 10px; font-weight: 700; cursor: pointer; }
+.correct-answer-toggle:has(input:checked) { color: #26784e; background: #dff3e8; }
+.correct-answer-toggle input { accent-color: #32966b; }
+.remove-answer { width: 26px; height: 26px; flex: 0 0 auto; border: 0; border-radius: 7px; color: #9a96a6; background: transparent; font-size: 19px; line-height: 1; }
+.remove-answer:hover { color: #b3364c; background: #fff0f2; }
+.answer-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.add-answer-button { padding: 8px 10px; border: 1px dashed #c9c4dc; border-radius: 8px; color: var(--purple-dark); background: #faf9ff; font-size: 11px; font-weight: 700; }
+.add-answer-button:hover:not(:disabled) { border-color: var(--purple); background: #f0edff; }
+.add-answer-button:disabled { cursor: not-allowed; opacity: .5; }
+.answer-actions > span { color: var(--muted); font-size: 10px; }
 .form-message { margin: 18px 0 0; color: var(--purple-dark); font-size: 13px; font-weight: 600; }
 .empty-page { min-height: 65vh; display: grid; align-content: center; justify-items: center; gap: 20px; }
 .empty-page h1 { text-align: center; font-size: 42px; }
@@ -299,34 +323,39 @@ h1, h2, h3, p { margin-top: 0; }
   .account-email { display: none; }
   .quiz-actions { justify-content: stretch; }
   .quiz-actions .button { flex: 1; padding: 0 9px; }
-
 }
 
 @media (max-width: 480px) {
-  .brand { font-size: 17px;     .dashboard-account > span { display: none; }
-    .dashboard-stats { justify-content: space-between; gap: 10px; }
-    .dashboard-stats strong { font-size: 19px; }
-    .dashboard-stats span { max-width: 82px; font-size: 10px; }
-    .quiz-library { grid-template-columns: 1fr; }
-    .quiz-tile { display: grid; grid-template-columns: 105px minmax(0, 1fr); }
-    .quiz-tile-art { height: 100%; min-height: 145px; }
-    .quiz-tile-art > span:first-child { font-size: 52px; }
-    .quiz-tile-content { padding: 14px 11px; }
-    .quiz-tile-actions { flex-direction: column; margin-top: 11px; }
-    .quiz-tile-actions .button { min-height: 36px; }
-    .library-actions { align-items: stretch; flex-direction: column; }
-    .projector-header { min-height: 64px; }
-    .projector-brand { font-size: 0; }
-    .projector-brand .brand-mark { font-size: 19px; }
-    .projector-room-code { gap: 6px; }
-    .projector-room-code span { font-size: 8px; }
-    .projector-room-code strong { font-size: 19px; }
-    .projector-answers { grid-template-columns: 1fr; gap: 8px; }
-    .projector-answer { min-height: 53px; }
-  }
+  .brand { font-size: 17px; }
+  .dashboard-account > span { display: none; }
+  .dashboard-stats { justify-content: space-between; gap: 10px; }
+  .dashboard-stats strong { font-size: 19px; }
+  .dashboard-stats span { max-width: 82px; font-size: 10px; }
+  .quiz-library { grid-template-columns: 1fr; }
+  .quiz-tile { display: grid; grid-template-columns: 105px minmax(0, 1fr); }
+  .quiz-tile-art { height: 100%; min-height: 145px; }
+  .quiz-tile-art > span:first-child { font-size: 52px; }
+  .quiz-tile-content { padding: 14px 11px; }
+  .quiz-tile-actions { flex-direction: column; margin-top: 11px; }
+  .quiz-tile-actions .button { min-height: 36px; }
+  .library-actions { align-items: stretch; flex-direction: column; }
+  .projector-header { min-height: 64px; }
+  .projector-brand { font-size: 0; }
+  .projector-brand .brand-mark { font-size: 19px; }
+  .projector-room-code { gap: 6px; }
+  .projector-room-code span { font-size: 8px; }
+  .projector-room-code strong { font-size: 19px; }
+  .projector-answers { grid-template-columns: 1fr; gap: 8px; }
+  .projector-answer { min-height: 53px; }
   .topbar nav { gap: 12px; }
   .topbar nav a { font-size: 11px; }
   .answer-grid { grid-template-columns: 1fr; }
   .question-card { padding: 18px; }
   .answers-fieldset legend span { display: block; margin: 5px 0 0; }
+  .questions-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .questions-heading > .button { width: 100%; }
+  .answer-option { gap: 5px; padding: 7px; }
+  .correct-answer-toggle { padding: 5px; }
+  .remove-answer { width: 22px; }
+  .answer-actions { align-items: flex-start; flex-direction: column; gap: 7px; }
 }

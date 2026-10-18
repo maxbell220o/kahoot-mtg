@@ -18,7 +18,7 @@ export interface PublicGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
-  question: { prompt: string; answers: [string, string, string, string] } | null;
+  question: { prompt: string; answers: string[] } | null;
   score: number;
   has_answered: boolean;
   is_correct: boolean | null;
@@ -31,7 +31,7 @@ export interface DisplayGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
-  question: { prompt: string; answers: [string, string, string, string] } | null;
+  question: { prompt: string; answers: string[] } | null;
   players: { name: string; score: number }[];
 }
 

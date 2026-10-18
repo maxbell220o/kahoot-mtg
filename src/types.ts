@@ -1,6 +1,6 @@
 export interface QuizQuestion {
   prompt: string;
-  answers: [string, string, string, string];
+  answers: string[];
   correctAnswer: number;
 }
 
@@ -40,22 +40,23 @@ export function parseQuiz(value: unknown): Quiz {
       typeof question.prompt !== "string" ||
       question.prompt.trim() === "" ||
       !Array.isArray(question.answers) ||
-      question.answers.length !== 4 ||
+      question.answers.length < 2 ||
+      question.answers.length > 6 ||
       !question.answers.every(
         (answer) => typeof answer === "string" && answer.trim() !== "",
       ) ||
       !Number.isInteger(question.correctAnswer) ||
       (question.correctAnswer as number) < 0 ||
-      (question.correctAnswer as number) > 3
+      (question.correctAnswer as number) >= question.answers.length
     ) {
       throw new Error(
-        `Frage ${index + 1} braucht einen Text, vier Antworten und eine richtige Antwort.`,
+        `Frage ${index + 1} braucht einen Text, zwei bis sechs Antworten und eine davon als richtige Antwort.`,
       );
     }
 
     return {
       prompt: question.prompt,
-      answers: [...question.answers] as QuizQuestion["answers"],
+      answers: [...question.answers],
       correctAnswer: question.correctAnswer as number,
     };
   });

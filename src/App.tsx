@@ -209,8 +209,14 @@ function validateQuiz(quiz: Quiz): string | null {
   for (let index = 0; index < quiz.questions.length; index += 1) {
     const question = quiz.questions[index];
     if (!question.prompt.trim()) return `Bitte ergänze den Text von Frage ${index + 1}.`;
+    if (question.answers.length < 2 || question.answers.length > 6) {
+      return `Frage ${index + 1} braucht zwei bis sechs Antwortmöglichkeiten.`;
+    }
     if (question.answers.some((answer) => !answer.trim())) {
-      return `Bitte fülle alle vier Antworten bei Frage ${index + 1} aus.`;
+      return `Bitte fülle alle ${question.answers.length} Antworten bei Frage ${index + 1} aus.`;
+    }
+    if (question.correctAnswer < 0 || question.correctAnswer >= question.answers.length) {
+      return `Bitte markiere eine richtige Antwort bei Frage ${index + 1}.`;
     }
   }
   return null;
@@ -441,7 +447,7 @@ function TeacherDashboard({
                 </div>
                 <div className="quiz-tile-content">
                   <h3>{quiz.title}</h3>
-                  <p>Vier Antwortmöglichkeiten pro Frage</p>
+                  <p>2 bis 6 Antwortmöglichkeiten pro Frage</p>
                   <div className="quiz-tile-actions">
                     <button
                       className="button button-secondary"
@@ -686,8 +692,8 @@ function ProjectorDisplay() {
               <h1>{game.question?.prompt}</h1>
               <div className="projector-answers">
                 {game.question?.answers.map((answer, index) => (
-                  <div className={`projector-answer projector-answer-${index}`} key={index}>
-                    <span className="projector-answer-shape">{["▲", "◆", "●", "■"][index]}</span>
+                  <div className={`projector-answer projector-answer-${index % 4}`} key={index}>
+                      <span className="projector-answer-shape">{["▲", "◆", "●", "■", "★", "⬟"][index]}</span>
                     <span>{answer}</span>
                   </div>
                 ))}
@@ -888,9 +894,27 @@ function TeacherEditor({
 
   function updateAnswer(questionIndex: number, answerIndex: number, value: string) {
     const question = quiz.questions[questionIndex];
-    const answers = [...question.answers] as QuizQuestion["answers"];
+    const answers = [...question.answers];
     answers[answerIndex] = value;
     updateQuestion(questionIndex, { answers });
+  }
+
+  function addAnswer(questionIndex: number) {
+    const question = quiz.questions[questionIndex];
+    if (question.answers.length >= 6) return;
+    updateQuestion(questionIndex, { answers: [...question.answers, ""] });
+  }
+
+  function removeAnswer(questionIndex: number, answerIndex: number) {
+    const question = quiz.questions[questionIndex];
+    if (question.answers.length <= 2) return;
+    const answers = question.answers.filter((_, index) => index !== answerIndex);
+    const correctAnswer = question.correctAnswer === answerIndex
+      ? 0
+      : question.correctAnswer > answerIndex
+        ? question.correctAnswer - 1
+        : question.correctAnswer;
+    updateQuestion(questionIndex, { answers, correctAnswer });
   }
 
   function exportQuiz() {
@@ -933,7 +957,7 @@ function TeacherEditor({
           <button className="back-link" onClick={() => navigate("/lehrer")}>← Zur Übersicht</button>
           <span className="eyebrow">Quiz-Editor</span>
           <h1>{editingSavedQuiz ? "Quiz bearbeiten" : "Quiz erstellen"}</h1>
-          <p>Erstelle Fragen mit vier Antwortmöglichkeiten und markiere die richtige.</p>
+          <p>Erstelle Fragen mit zwei bis sechs Antwortmöglichkeiten und markiere die richtige.</p>
         </div>
         <div className="toolbar">
           <span className="account-email">{email}</span>
@@ -971,21 +995,31 @@ function TeacherEditor({
         <TeacherGamePanel game={activeGame} onAdvance={() => void handleAdvanceGame()} busy={saving} />
       )}
 
-      <label className="field-label" htmlFor="quiz-title">Quiz-Titel</label>
-      <input
-        id="quiz-title"
-        className="title-input"
-        maxLength={100}
-        value={quiz.title}
-        onChange={(event) => {
-          setQuiz((current) => ({ ...current, title: event.target.value }));
-          setMessage("");
-        }}
-        placeholder="Zum Beispiel: Planeten unseres Sonnensystems"
-      />
+      <section className="editor-setup panel">
+        <span className="editor-step">1</span>
+        <div className="editor-setup-content">
+          <label className="field-label" htmlFor="quiz-title">Wie soll dein Quiz heißen?</label>
+          <input
+            id="quiz-title"
+            className="title-input"
+            maxLength={100}
+            value={quiz.title}
+            onChange={(event) => {
+              setQuiz((current) => ({ ...current, title: event.target.value }));
+              setMessage("");
+            }}
+            placeholder="Zum Beispiel: Planeten unseres Sonnensystems"
+          />
+          <span className="field-hint">Ein kurzer Titel hilft dir, dein Quiz später wiederzufinden.</span>
+        </div>
+      </section>
 
       <div className="questions-heading">
-        <h2>Fragen <span className="count-badge">{quiz.questions.length}</span></h2>
+        <div>
+          <span className="eyebrow">Schritt 2</span>
+          <h2>Deine Fragen <span className="count-badge">{quiz.questions.length}</span></h2>
+          <p>Schreibe eine Frage, ergänze 2 bis 6 Antworten und wähle die richtige aus.</p>
+        </div>
         <button
           className="button button-secondary"
           onClick={() => setQuiz((current) => ({
@@ -993,7 +1027,7 @@ function TeacherEditor({
             questions: [...current.questions, createEmptyQuestion()],
           }))}
         >
-          + Frage hinzufügen
+          <span aria-hidden="true">＋</span> Frage hinzufügen
         </button>
       </div>
 
@@ -1001,7 +1035,13 @@ function TeacherEditor({
         {quiz.questions.map((question, questionIndex) => (
           <article className="panel question-card" key={questionIndex}>
             <div className="question-card-heading">
-              <h3>Frage {questionIndex + 1}</h3>
+              <div className="question-card-title">
+                <span className="question-number">{String(questionIndex + 1).padStart(2, "0")}</span>
+                <div>
+                  <h3>Frage {questionIndex + 1}</h3>
+                  <span>{question.answers.length} von 6 Antwortmöglichkeiten</span>
+                </div>
+              </div>
               {quiz.questions.length > 1 && (
                 <button
                   className="text-button danger-text"
@@ -1015,27 +1055,23 @@ function TeacherEditor({
                 </button>
               )}
             </div>
-            <label className="field-label" htmlFor={`prompt-${questionIndex}`}>Frage</label>
+            <label className="field-label" htmlFor={`prompt-${questionIndex}`}>Deine Frage</label>
             <textarea
               id={`prompt-${questionIndex}`}
               maxLength={300}
               rows={2}
               value={question.prompt}
               onChange={(event) => updateQuestion(questionIndex, { prompt: event.target.value })}
-              placeholder="Schreibe deine Frage ..."
+              placeholder="Zum Beispiel: Welcher Planet ist der größte?"
             />
             <fieldset className="answers-fieldset">
-              <legend>Antwortmöglichkeiten <span>Wähle den Kreis bei der richtigen Antwort.</span></legend>
+              <legend>
+                Antwortmöglichkeiten
+                <span>Wähle „Richtig“ bei der passenden Antwort.</span>
+              </legend>
               <div className="answer-grid">
                 {question.answers.map((answer, answerIndex) => (
-                  <label className={`answer-option answer-${answerIndex}`} key={answerIndex}>
-                    <input
-                      type="radio"
-                      name={`correct-${questionIndex}`}
-                      checked={question.correctAnswer === answerIndex}
-                      onChange={() => updateQuestion(questionIndex, { correctAnswer: answerIndex })}
-                      aria-label={`Antwort ${answerIndex + 1} als richtig markieren`}
-                    />
+                  <div className={`answer-option answer-${answerIndex} ${question.correctAnswer === answerIndex ? "is-correct" : ""}`} key={answerIndex}>
                     <span className="answer-number">{answerIndex + 1}</span>
                     <input
                       className="answer-input"
@@ -1043,10 +1079,44 @@ function TeacherEditor({
                       value={answer}
                       onChange={(event) => updateAnswer(questionIndex, answerIndex, event.target.value)}
                       placeholder={`Antwort ${answerIndex + 1}`}
-                      aria-label={`Antwort ${answerIndex + 1}`}
+                      aria-label={`Antwort ${answerIndex + 1} für Frage ${questionIndex + 1}`}
                     />
-                  </label>
+                    <label className="correct-answer-toggle">
+                      <input
+                        type="radio"
+                        name={`correct-${questionIndex}`}
+                        checked={question.correctAnswer === answerIndex}
+                        onChange={() => updateQuestion(questionIndex, { correctAnswer: answerIndex })}
+                      />
+                      <span>Richtig</span>
+                    </label>
+                    {question.answers.length > 2 && (
+                      <button
+                        className="remove-answer"
+                        type="button"
+                        onClick={() => removeAnswer(questionIndex, answerIndex)}
+                        aria-label={`Antwort ${answerIndex + 1} entfernen`}
+                        title="Antwort entfernen"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 ))}
+              </div>
+              <div className="answer-actions">
+                <button
+                  className="add-answer-button"
+                  type="button"
+                  onClick={() => addAnswer(questionIndex)}
+                  disabled={question.answers.length >= 6}
+                >
+                  ＋ Antwort hinzufügen
+                </button>
+                <span>{question.answers.length < 6
+                  ? `Noch ${6 - question.answers.length} ${6 - question.answers.length === 1 ? "Antwort" : "Antworten"} möglich`
+                  : "Maximal 6 Antworten erreicht"}
+                </span>
               </div>
             </fieldset>
           </article>
