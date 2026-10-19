@@ -2,6 +2,7 @@ export interface QuizQuestion {
   prompt: string;
   answers: string[];
   correctAnswers: number[];
+  scoringMode: "normal" | "double" | "none";
 }
 
 export interface Quiz {
@@ -13,6 +14,7 @@ export const createEmptyQuestion = (): QuizQuestion => ({
   prompt: "",
   answers: ["", "", "", ""],
   correctAnswers: [0],
+  scoringMode: "normal",
 });
 
 export function parseQuiz(value: unknown): Quiz {
@@ -72,10 +74,16 @@ export function parseQuiz(value: unknown): Quiz {
       );
     }
 
+    const scoringMode = question.scoringMode ?? "normal";
+    if (scoringMode !== "normal" && scoringMode !== "double" && scoringMode !== "none") {
+      throw new Error(`Frage ${index + 1} hat eine ungültige Punktewertung.`);
+    }
+
     return {
       prompt: question.prompt,
       answers: [...answers],
       correctAnswers: [...correctAnswers],
+      scoringMode,
     };
   });
 

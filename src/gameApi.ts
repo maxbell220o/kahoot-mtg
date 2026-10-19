@@ -20,6 +20,7 @@ export interface PublicGameState {
   question_count: number;
   question: { prompt: string; answers: string[] } | null;
   score: number;
+  points_earned: number;
   has_answered: boolean;
   is_correct: boolean | null;
   leaderboard: { name: string; score: number }[] | null;

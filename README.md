@@ -20,13 +20,14 @@ Im [Lehrerbereich](/lehrer) lassen sich Quizze erstellen, als JSON herunterladen
     {
       "prompt": "Welche Antwort ist richtig?",
       "answers": ["Antwort A", "Antwort B", "Antwort C"],
-      "correctAnswers": [0, 2]
+      "correctAnswers": [0, 2],
+      "scoringMode": "normal"
     }
   ]
 }
 ```
 
-Jede Frage enthält zwei bis sechs Antworten. `correctAnswers` enthält die nullbasierten Indizes aller richtigen Antworten. Ältere Quizdateien mit `correctAnswer` werden beim Import weiter unterstützt.
+Jede Frage enthält zwei bis sechs Antworten. `correctAnswers` enthält die nullbasierten Indizes aller richtigen Antworten. `scoringMode` ist `normal` (bis zu 1.000 Punkte), `double` (bis zu 2.000 Punkte) oder `none`; fehlt der Wert, wird `normal` verwendet. Richtige Antworten erhalten abhängig vom Tempo innerhalb von 30 Sekunden zwischen 100 % und 50 % des Höchstwerts. Ältere Quizdateien mit `correctAnswer` werden beim Import weiter unterstützt.
 
 ## GitHub Pages
 
@@ -63,3 +64,5 @@ Die Steuerkonsole liegt unter `/lehrer/konsole/CODE`. Öffne diesen Link auf ein
 Wenn `schema.sql` bereits im Supabase-Projekt ausgeführt wurde, führe anschließend den Inhalt von `supabase/display-and-console.sql` einmal im SQL Editor aus, damit die Tafel die sichere öffentliche Spielansicht laden kann. Bei einem frischen Projekt: erst `schema.sql`, danach die Migration. Danach veröffentliche die App erneut auf GitHub Pages.
 
 Wenn die bestehende Datenbank schon eingerichtet ist, führe außerdem `supabase/multiple-choice-answers.sql` einmal im SQL Editor aus. Damit werden zwei bis sechs Optionen und mehrere richtige Antworten unterstützt.
+
+Für die zeitabhängige Punktewertung führe bei einer bestehenden Datenbank `supabase/speed-scoring.sql` einmal im SQL Editor aus. Wenn die Datenbank noch nicht auf Mehrfachantworten migriert wurde, führe zuerst `supabase/multiple-choice-answers.sql` aus. Bei einem neuen Projekt enthält das aktuelle `supabase/schema.sql` bereits alle Änderungen; die Migration ist dann nicht nötig. Der Editor erlaubt pro Frage normale, doppelte oder keine Punkte.

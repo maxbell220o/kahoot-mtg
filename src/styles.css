@@ -257,6 +257,11 @@ h1, h2, h3, p { margin-top: 0; }
 .question-chevron { margin-left: 8px; color: #817c94; font-size: 18px; transition: transform .15s ease; }
 .question-card-open .question-chevron { transform: rotate(180deg); }
 .question-card-body { padding-top: 12px; border-top: 1px solid var(--line); }
+.scoring-mode { display: grid; gap: 7px; max-width: 520px; margin-top: 16px; }
+.scoring-mode .field-label { margin: 0; }
+.scoring-mode select { min-height: 43px; padding: 0 12px; border: 1px solid #dedbe8; border-radius: 9px; color: #26213c; background: #fff; }
+.scoring-mode select:focus { border-color: var(--purple); outline: none; box-shadow: 0 0 0 3px #6554d91c; }
+.scoring-mode .field-hint { margin: 0; line-height: 1.5; }
 .question-number { width: 38px; height: 38px; }
 .text-button { border: 0; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-text { color: #c34e61; }

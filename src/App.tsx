@@ -149,7 +149,10 @@ function StudentHome() {
               <h2>{gameState.question?.prompt}</h2>
               {gameState.has_answered ? (
                 <p className={gameState.is_correct ? "answer-feedback correct" : "answer-feedback incorrect"} role="status">
-                  {gameState.is_correct ? "Richtig! Gut gemacht." : "Leider falsch."} · Punkte: {gameState.score}
+                  {gameState.is_correct
+                    ? `Richtig! +${gameState.points_earned.toLocaleString("de-DE")} Punkte.`
+                    : "Leider falsch."}{" "}
+                  · Punktestand: {gameState.score.toLocaleString("de-DE")}
                   <br />Warte auf die nächste Frage.
                 </p>
               ) : (
@@ -1083,6 +1086,7 @@ function TeacherEditor({
                   <span className="question-correct-count">
                     · {question.correctAnswers.length} richtig
                   </span>
+                  <span>· {question.scoringMode === "double" ? "2× Punkte" : question.scoringMode === "none" ? "0 Punkte" : "1× Punkte"}</span>
                   <span className="question-chevron" aria-hidden="true">⌄</span>
                 </span>
               </button>
@@ -1108,6 +1112,21 @@ function TeacherEditor({
                   onChange={(event) => updateQuestion(questionIndex, { prompt: event.target.value })}
                   placeholder="Zum Beispiel: Welcher Planet ist der größte?"
                 />
+                <div className="scoring-mode">
+                  <label className="field-label" htmlFor={`scoring-${questionIndex}`}>Punktewertung</label>
+                  <select
+                    id={`scoring-${questionIndex}`}
+                    value={question.scoringMode}
+                    onChange={(event) => updateQuestion(questionIndex, {
+                      scoringMode: event.target.value as QuizQuestion["scoringMode"],
+                    })}
+                  >
+                    <option value="normal">Normale Punkte (bis zu 1.000)</option>
+                    <option value="double">Doppelte Punkte (bis zu 2.000)</option>
+                    <option value="none">Keine Punkte</option>
+                  </select>
+                  <span className="field-hint">Für richtige Antworten gibt es je nach Antworttempo mehr Punkte. Der Tempo-Bonus sinkt über 30 Sekunden bis zur Hälfte.</span>
+                </div>
                 <fieldset className="answers-fieldset">
                   <legend>
                     Antwortmöglichkeiten

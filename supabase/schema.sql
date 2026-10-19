@@ -24,6 +24,7 @@ create table public.quiz_games (
   code text not null unique check (code ~ '^[0-9]{6}$'),
   status text not null default 'waiting' check (status in ('waiting', 'question', 'finished')),
   current_question integer not null default -1,
+  question_started_at timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -43,6 +44,7 @@ create table public.quiz_answers (
   question_index integer not null check (question_index >= 0),
   answer_index integer not null check (answer_index between 0 and 5),
   is_correct boolean not null,
+  points_earned integer not null default 0 check (points_earned >= 0),
   answered_at timestamptz not null default now(),
   unique (player_id, question_index, answer_index)
 );
@@ -115,11 +117,15 @@ begin
   from public.quizzes where id = v_game.quiz_id;
 
   if v_game.status = 'waiting' then
-    update public.quiz_games set status = 'question', current_question = 0 where id = v_game.id;
+    update public.quiz_games
+    set status = 'question', current_question = 0, question_started_at = clock_timestamp()
+    where id = v_game.id;
   elsif v_game.status = 'question' and v_game.current_question + 1 < v_question_count then
-    update public.quiz_games set current_question = current_question + 1 where id = v_game.id;
+    update public.quiz_games
+    set current_question = current_question + 1, question_started_at = clock_timestamp()
+    where id = v_game.id;
   elsif v_game.status = 'question' then
-    update public.quiz_games set status = 'finished' where id = v_game.id;
+    update public.quiz_games set status = 'finished', question_started_at = null where id = v_game.id;
   else
     raise exception 'Das Quiz ist bereits beendet.';
   end if;
@@ -274,6 +280,7 @@ begin
     'question', case when v_question is null then null else
       jsonb_build_object('prompt', v_question -> 'prompt', 'answers', v_question -> 'answers') end,
     'score', v_player.score,
+    'points_earned', coalesce(v_answer.points_earned, 0),
     'has_answered', v_answer.id is not null,
     'is_correct', case when v_answer.id is null then null else v_answer.is_correct end,
     'leaderboard', case when v_game.status = 'finished' then coalesce((
@@ -299,6 +306,10 @@ declare
   v_submitted integer[];
   v_expected integer[];
   v_correct boolean;
+  v_points integer := 0;
+  v_base_points integer;
+  v_elapsed_seconds numeric;
+  v_answer_points integer := 0;
 begin
   select * into v_game from public.quiz_games where code = p_code for update;
   if not found or v_game.status <> 'question' then
@@ -341,6 +352,20 @@ begin
   from jsonb_array_elements_text(v_correct_answers) as correct(value);
   v_correct := v_submitted = v_expected;
 
+  if v_correct then
+    case coalesce(v_question ->> 'scoringMode', 'normal')
+      when 'normal' then v_base_points := 1000;
+      when 'double' then v_base_points := 2000;
+      when 'none' then v_base_points := 0;
+      else raise exception 'Die Punktewertung dieser Frage ist ungültig.';
+    end case;
+    v_elapsed_seconds := greatest(
+      0,
+      extract(epoch from (clock_timestamp() - v_game.question_started_at))
+    );
+    v_points := floor(v_base_points * greatest(0.5, 1 - least(v_elapsed_seconds, 30) / 60.0));
+  end if;
+
   if exists (
     select 1 from public.quiz_answers
     where player_id = v_player.id and question_index = v_game.current_question
@@ -348,20 +373,31 @@ begin
     select bool_and(is_correct) into v_correct
     from public.quiz_answers
     where player_id = v_player.id and question_index = v_game.current_question;
+    select max(points_earned) into v_answer_points
+    from public.quiz_answers
+    where player_id = v_player.id and question_index = v_game.current_question;
     select * into v_player from public.quiz_players where id = v_player.id;
-    return jsonb_build_object('is_correct', v_correct, 'score', v_player.score);
+    return jsonb_build_object(
+      'is_correct', v_correct,
+      'score', v_player.score,
+      'points_earned', v_answer_points
+    );
   end if;
 
-  insert into public.quiz_answers (game_id, player_id, question_index, answer_index, is_correct)
-  select v_game.id, v_player.id, v_game.current_question, selected.answer_index, v_correct
+  insert into public.quiz_answers (game_id, player_id, question_index, answer_index, is_correct, points_earned)
+  select v_game.id, v_player.id, v_game.current_question, selected.answer_index, v_correct, v_points
   from unnest(v_submitted) as selected(answer_index);
 
-  if v_correct then
-    update public.quiz_players set score = score + 1 where id = v_player.id;
+  if v_correct and v_points > 0 then
+    update public.quiz_players set score = score + v_points where id = v_player.id;
   end if;
 
   select * into v_player from public.quiz_players where id = p_player_id;
-  return jsonb_build_object('is_correct', v_correct, 'score', v_player.score);
+  return jsonb_build_object(
+    'is_correct', v_correct,
+    'score', v_player.score,
+    'points_earned', v_points
+  );
 end;
 $$;
 
