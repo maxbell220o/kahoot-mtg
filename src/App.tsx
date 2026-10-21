@@ -43,6 +43,24 @@ function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function useCountdown(deadline: string | null) {
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!deadline) {
+      setSecondsRemaining(null);
+      return;
+    }
+    const deadlineMs = Date.parse(deadline);
+    const update = () => setSecondsRemaining(Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 250);
+    return () => window.clearInterval(timer);
+  }, [deadline]);
+
+  return secondsRemaining;
+}
+
 function StudentHome() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -52,6 +70,8 @@ function StudentHome() {
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
   const [answering, setAnswering] = useState(false);
+  const secondsRemaining = useCountdown(gameState?.deadline ?? null);
+  const answerPhaseOver = Boolean(gameState?.answer_revealed || secondsRemaining === 0);
 
   useEffect(() => {
     if (!playerId || !code) return;
@@ -146,16 +166,28 @@ function StudentHome() {
           ) : (
             <>
               <p className="question-progress">Frage {gameState.current_question + 1} von {gameState.question_count}</p>
+              {!answerPhaseOver && secondsRemaining !== null && (
+                <p className="question-timer" role="timer">Noch {secondsRemaining} Sekunden</p>
+              )}
               <h2>{gameState.question?.prompt}</h2>
-              {gameState.has_answered ? (
+              {(gameState.has_answered || answerPhaseOver) && (
                 <p className={gameState.is_correct ? "answer-feedback correct" : "answer-feedback incorrect"} role="status">
-                  {gameState.is_correct
-                    ? `Richtig! +${gameState.points_earned.toLocaleString("de-DE")} Punkte.`
-                    : "Leider falsch."}{" "}
+                  {gameState.has_answered
+                    ? gameState.is_correct
+                      ? `Richtig! +${gameState.points_earned.toLocaleString("de-DE")} Punkte.`
+                      : "Leider falsch."
+                    : secondsRemaining !== null && secondsRemaining > 0
+                      ? "Alle haben geantwortet – du hast keine Antwort abgegeben."
+                      : "Zeit abgelaufen – du hast keine Antwort abgegeben."}{" "}
                   · Punktestand: {gameState.score.toLocaleString("de-DE")}
-                  <br />Warte auf die nächste Frage.
+                  {gameState.answer_revealed
+                    ? <><br />Die richtige Antwort ist grün markiert.</>
+                    : answerPhaseOver
+                      ? <><br />Die Antworten werden aufgelöst.</>
+                      : <><br />Warte auf die Antworten der anderen.</>}
                 </p>
-              ) : (
+              )}
+              {!gameState.has_answered && !answerPhaseOver && (
                 <div className="player-answer-list">
                   {gameState.question?.answers.map((answer, index) => (
                     <button
@@ -176,6 +208,18 @@ function StudentHome() {
                   >
                     {answering ? "Antwort wird gesendet ..." : "Antwort bestätigen"}
                   </button>
+                </div>
+              )}
+              {gameState.answer_revealed && (
+                <div className="player-answer-list answer-review">
+                  {gameState.question?.answers.map((answer, index) => (
+                    <div
+                      className={`player-answer answer-${index % 4} ${gameState.correct_answers?.includes(index) ? "answer-revealed-correct" : "answer-review-muted"}`}
+                      key={index}
+                    >
+                      <span className="answer-number">{index + 1}</span>{answer}
+                    </div>
+                  ))}
                 </div>
               )}
             </>
@@ -517,6 +561,8 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const secondsRemaining = useCountdown(game?.deadline ?? null);
+  const answerPhaseOver = Boolean(game?.answer_revealed || secondsRemaining === 0);
   const displayUrl = `${window.location.origin}${import.meta.env.BASE_URL}tafel/${code}`;
 
   useEffect(() => {
@@ -596,9 +642,9 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
               <button
                 className="button button-primary console-advance"
                 onClick={() => void handleAdvance()}
-                disabled={busy || game.status === "finished"}
+                disabled={busy || game.status === "finished" || (game.status === "question" && !answerPhaseOver)}
               >
-                {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : game.status === "finished" ? "Quiz beendet" : "Nächste Frage"}
+                {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : game.status === "finished" ? "Quiz beendet" : answerPhaseOver ? "Nächste Frage" : "Frage läuft"}
               </button>
             </div>
           </section>
@@ -617,7 +663,9 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
                   ? "Wenn alle Schüler auf der Tafel erscheinen, kannst du das Quiz starten."
                   : game.status === "finished"
                     ? "Das Ergebnis wird auf der Tafel angezeigt."
-                    : "Die aktuelle Frage und Antworten werden auf der Tafel angezeigt."}
+                    : answerPhaseOver
+                      ? "Die richtige Antwort wird auf der Tafel angezeigt."
+                      : `Antworten eingegangen: ${game.answered_count} von ${game.players.length}. Noch ${secondsRemaining ?? 30} Sekunden.`}
               </p>
             </section>
             <section className="panel console-players-card">
@@ -637,6 +685,8 @@ function ProjectorDisplay() {
   const { code = "" } = useParams();
   const [game, setGame] = useState<DisplayGameState | null>(null);
   const [error, setError] = useState("");
+  const secondsRemaining = useCountdown(game?.deadline ?? null);
+  const answerPhaseOver = Boolean(game?.answer_revealed || secondsRemaining === 0);
 
   useEffect(() => {
     let active = true;
@@ -718,13 +768,20 @@ function ProjectorDisplay() {
               <strong>FRAGE {game.current_question + 1} <i>/</i> {game.question_count}</strong>
             </div>
             <div className="projector-question-content">
-              <span className="projector-kicker">Was ist die richtige Antwort?</span>
+              <span className="projector-kicker">
+                {game.answer_revealed
+                  ? "Richtige Antwort"
+                  : answerPhaseOver
+                    ? "Zeit abgelaufen – Antworten werden aufgelöst"
+                    : `Noch ${secondsRemaining ?? 30} Sekunden · ${game.answered_count} von ${game.players.length} Antworten`}
+              </span>
               <h1>{game.question?.prompt}</h1>
               <div className="projector-answers">
                 {game.question?.answers.map((answer, index) => (
-                  <div className={`projector-answer projector-answer-${index % 4}`} key={index}>
+                  <div className={`projector-answer projector-answer-${index % 4} ${game.answer_revealed && game.correct_answers?.includes(index) ? "projector-answer-correct" : game.answer_revealed ? "projector-answer-muted" : ""}`} key={index}>
                       <span className="projector-answer-shape">{["▲", "◆", "●", "■", "★", "⬟"][index]}</span>
                     <span>{answer}</span>
+                    {game.answer_revealed && game.correct_answers?.includes(index) && <strong className="projector-correct-label">RICHTIG</strong>}
                   </div>
                 ))}
               </div>
@@ -732,7 +789,7 @@ function ProjectorDisplay() {
             <div className="projector-progress"><span style={{ width: `${((game.current_question + 1) / game.question_count) * 100}%` }} /></div>
           </section>
           <aside className="projector-question-players">
-            <div className="projector-answer-count">{game.players.length}<span>mit dabei</span></div>
+            <div className="projector-answer-count">{game.answered_count}<span>von {game.players.length} Antworten</span></div>
             <h2>Spieler</h2>
             <ul>{game.players.slice(0, 12).map((player, index) => <li key={`${player.name}-${index}`}>{player.name}</li>)}</ul>
             {game.players.length > 12 && <span className="projector-more">und {game.players.length - 12} weitere ...</span>}
@@ -753,6 +810,8 @@ function TeacherGamePanel({
   busy: boolean;
 }) {
   const [copyMessage, setCopyMessage] = useState("");
+  const secondsRemaining = useCountdown(game.deadline);
+  const answerPhaseOver = game.answer_revealed || secondsRemaining === 0;
 
   async function copyCode() {
     try {
@@ -793,11 +852,13 @@ function TeacherGamePanel({
             ? "Warte auf Schüler. Starte das Quiz, wenn alle bereit sind."
             : game.status === "finished"
               ? "Das Quiz ist beendet."
-              : `Frage ${game.current_question + 1} von ${game.question_count}`}
+              : answerPhaseOver
+                ? `Antwort aufgelöst · ${game.answered_count} von ${game.players.length} haben geantwortet.`
+                : `Frage ${game.current_question + 1} von ${game.question_count} · ${game.answered_count} von ${game.players.length} Antworten · noch ${secondsRemaining ?? 30} Sekunden`}
         </p>
         {game.status !== "finished" && (
-          <button className="button button-primary" onClick={onAdvance} disabled={busy}>
-            {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : "Nächste Frage"}
+          <button className="button button-primary" onClick={onAdvance} disabled={busy || (game.status === "question" && !answerPhaseOver)}>
+            {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : answerPhaseOver ? "Nächste Frage" : "Frage läuft"}
           </button>
         )}
       </div>

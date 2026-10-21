@@ -102,6 +102,9 @@ as $$
 declare
   v_game public.quiz_games%rowtype;
   v_question_count integer;
+  v_player_count integer;
+  v_answered_count integer;
+  v_answer_revealed boolean;
   v_result jsonb;
 begin
   select * into v_game
@@ -120,12 +123,26 @@ begin
     update public.quiz_games
     set status = 'question', current_question = 0, question_started_at = clock_timestamp()
     where id = v_game.id;
-  elsif v_game.status = 'question' and v_game.current_question + 1 < v_question_count then
-    update public.quiz_games
-    set current_question = current_question + 1, question_started_at = clock_timestamp()
-    where id = v_game.id;
   elsif v_game.status = 'question' then
-    update public.quiz_games set status = 'finished', question_started_at = null where id = v_game.id;
+    select count(*) into v_player_count
+    from public.quiz_players where game_id = v_game.id;
+    select count(distinct player_id) into v_answered_count
+    from public.quiz_answers
+    where game_id = v_game.id and question_index = v_game.current_question;
+    v_answer_revealed :=
+      clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
+      or (v_player_count > 0 and v_answered_count >= v_player_count);
+    if not v_answer_revealed then
+      raise exception 'Die Frage läuft noch. Warte, bis alle geantwortet haben oder die Zeit abläuft.';
+    end if;
+
+    if v_game.current_question + 1 < v_question_count then
+      update public.quiz_games
+      set current_question = current_question + 1, question_started_at = clock_timestamp()
+      where id = v_game.id;
+    else
+      update public.quiz_games set status = 'finished', question_started_at = null where id = v_game.id;
+    end if;
   else
     raise exception 'Das Quiz ist bereits beendet.';
   end if;
@@ -148,12 +165,33 @@ set search_path = ''
 as $$
 declare
   v_result jsonb;
+  v_game public.quiz_games%rowtype;
+  v_player_count integer;
+  v_answered_count integer;
+  v_answer_revealed boolean;
 begin
+  select * into v_game from public.quiz_games where code = p_code and owner_id = auth.uid();
+  if not found then
+    raise exception 'Spiel nicht gefunden oder kein Zugriff.';
+  end if;
+
+  select count(*) into v_player_count from public.quiz_players where game_id = v_game.id;
+  select count(distinct player_id) into v_answered_count
+  from public.quiz_answers
+  where game_id = v_game.id and question_index = v_game.current_question;
+  v_answer_revealed := v_game.status = 'question' and (
+    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
+    or (v_player_count > 0 and v_answered_count >= v_player_count)
+  );
+
   select jsonb_build_object(
     'code', g.code,
     'status', g.status,
     'current_question', g.current_question,
     'question_count', jsonb_array_length(q.questions),
+    'deadline', case when g.status = 'question' then g.question_started_at + interval '30 seconds' else null end,
+    'answer_revealed', v_answer_revealed,
+    'answered_count', v_answered_count,
     'players', coalesce((
       select jsonb_agg(jsonb_build_object('name', p.name, 'score', p.score) order by p.score desc, p.joined_at)
       from public.quiz_players p where p.game_id = g.id
@@ -178,13 +216,40 @@ set search_path = ''
 as $$
 declare
   v_result jsonb;
+  v_game public.quiz_games%rowtype;
+  v_player_count integer;
+  v_answered_count integer;
+  v_answer_revealed boolean;
 begin
+  select * into v_game from public.quiz_games where code = p_code;
+  if not found then
+    raise exception 'Dieses Quiz wurde nicht gefunden.';
+  end if;
+
+  select count(*) into v_player_count from public.quiz_players where game_id = v_game.id;
+  select count(distinct player_id) into v_answered_count
+  from public.quiz_answers
+  where game_id = v_game.id and question_index = v_game.current_question;
+  v_answer_revealed := v_game.status = 'question' and (
+    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
+    or (v_player_count > 0 and v_answered_count >= v_player_count)
+  );
+
   select jsonb_build_object(
     'code', g.code,
     'title', q.title,
     'status', g.status,
     'current_question', g.current_question,
     'question_count', jsonb_array_length(q.questions),
+    'deadline', case when g.status = 'question' then g.question_started_at + interval '30 seconds' else null end,
+    'answer_revealed', v_answer_revealed,
+    'answered_count', v_answered_count,
+    'player_count', v_player_count,
+    'correct_answers', case when v_answer_revealed then
+      case when jsonb_typeof(q.questions -> g.current_question -> 'correctAnswers') = 'array'
+        then q.questions -> g.current_question -> 'correctAnswers'
+        else jsonb_build_array((q.questions -> g.current_question ->> 'correctAnswer')::integer) end
+      else null end,
     'question', case when g.status = 'question' then
       jsonb_build_object(
         'prompt', q.questions -> g.current_question -> 'prompt',
@@ -252,6 +317,9 @@ declare
   v_player public.quiz_players%rowtype;
   v_question jsonb;
   v_answer public.quiz_answers%rowtype;
+  v_player_count integer;
+  v_answered_count integer;
+  v_answer_revealed boolean;
 begin
   select * into v_game from public.quiz_games where code = p_code;
   if not found then
@@ -272,11 +340,28 @@ begin
   select * into v_answer from public.quiz_answers
   where player_id = v_player.id and question_index = v_game.current_question;
 
+  select count(*) into v_player_count from public.quiz_players where game_id = v_game.id;
+  select count(distinct player_id) into v_answered_count
+  from public.quiz_answers
+  where game_id = v_game.id and question_index = v_game.current_question;
+  v_answer_revealed := v_game.status = 'question' and (
+    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
+    or (v_player_count > 0 and v_answered_count >= v_player_count)
+  );
+
   return jsonb_build_object(
     'title', v_quiz.title,
     'status', v_game.status,
     'current_question', v_game.current_question,
     'question_count', jsonb_array_length(v_quiz.questions),
+    'deadline', case when v_game.status = 'question' then v_game.question_started_at + interval '30 seconds' else null end,
+    'answer_revealed', v_answer_revealed,
+    'answered_count', v_answered_count,
+    'player_count', v_player_count,
+    'correct_answers', case when v_answer_revealed then
+      case when jsonb_typeof(v_question -> 'correctAnswers') = 'array' then v_question -> 'correctAnswers'
+      else jsonb_build_array((v_question ->> 'correctAnswer')::integer) end
+      else null end,
     'question', case when v_question is null then null else
       jsonb_build_object('prompt', v_question -> 'prompt', 'answers', v_question -> 'answers') end,
     'score', v_player.score,
@@ -310,6 +395,8 @@ declare
   v_base_points integer;
   v_elapsed_seconds numeric;
   v_answer_points integer := 0;
+  v_player_count integer;
+  v_answered_count integer;
 begin
   select * into v_game from public.quiz_games where code = p_code for update;
   if not found or v_game.status <> 'question' then
@@ -382,6 +469,17 @@ begin
       'score', v_player.score,
       'points_earned', v_answer_points
     );
+  end if;
+
+  if clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds' then
+    raise exception 'Die Antwortzeit ist abgelaufen.';
+  end if;
+  select count(*) into v_player_count from public.quiz_players where game_id = v_game.id;
+  select count(distinct player_id) into v_answered_count
+  from public.quiz_answers
+  where game_id = v_game.id and question_index = v_game.current_question;
+  if v_player_count > 0 and v_answered_count >= v_player_count then
+    raise exception 'Alle Spieler haben bereits geantwortet.';
   end if;
 
   insert into public.quiz_answers (game_id, player_id, question_index, answer_index, is_correct, points_earned)

@@ -51,18 +51,16 @@ Der Lehrerbereich unter `/lehrer` verwendet Supabase Auth mit E-Mail-Adresse und
 5. In Supabase unter **Authentication → URL Configuration** setze die Site URL auf die veröffentlichte GitHub-Pages-Adresse. Füge diese Adresse zusätzlich zu den Redirect URLs hinzu.
 6. Öffne in Supabase **SQL Editor → New query**, kopiere den Inhalt von `supabase/schema.sql` hinein und klicke **Run**. Das richtet Quiz-, Spiel-, Spieler- und Antworttabellen samt Row-Level-Security und sicheren Spiel-Funktionen ein.
 
-Danach kann eine Lehrkraft ein Quiz speichern oder direkt starten. Während des Spiels zeigt die App einen Zutrittscode; Schüler öffnen `/`, geben Code und Namen ein und beantworten die freigegebenen Fragen. Die App fragt den Spielstatus regelmäßig ab. Antworten werden serverseitig ausgewertet; bei Fragen mit mehreren richtigen Antworten müssen alle korrekten Optionen ausgewählt sein.
+Danach kann eine Lehrkraft ein Quiz speichern oder direkt starten. Während des Spiels zeigt die App einen Zutrittscode; Schüler öffnen `/`, geben Code und Namen ein und beantworten die freigegebenen Fragen. Die App fragt den Spielstatus regelmäßig ab. Jede Frage hat ein 30-Sekunden-Zeitlimit. Die Frage wird automatisch aufgelöst, sobald alle beigetretenen Schüler geantwortet haben oder die Zeit abläuft; die richtigen Antworten werden dann auf der Tafel und bei den Schülern markiert. Danach schaltet die Lehrkraft über die Steuerkonsole zur nächsten Frage weiter. Antworten werden serverseitig ausgewertet; bei Fragen mit mehreren richtigen Antworten müssen alle korrekten Optionen ausgewählt sein.
 
 Der Publishable key ist für den Einsatz im Browser bestimmt. Verwende niemals den `service_role`-Schlüssel in der App oder in GitHub Pages. Die Datei `supabase/schema.sql` ist für ein frisches Projekt gedacht. Führe sie nicht erneut aus, wenn die Tabellen dort bereits angelegt wurden.
 
 ## Tafel und separate Steuerkonsole
 
-Die Tafelansicht unter `/tafel/CODE` ist für den Projektor oder ein großes Display gedacht. Sie zeigt den Spielcode, die aktuelle Frage, zwei bis sechs Antwortmöglichkeiten, die Teilnehmenden und am Schluss die Rangliste. Die richtige Antwort wird nicht an die Tafel übertragen.
+Die Tafelansicht unter `/tafel/CODE` ist für den Projektor oder ein großes Display gedacht. Sie zeigt den Spielcode, die aktuelle Frage, zwei bis sechs Antwortmöglichkeiten, den Countdown und die Teilnehmenden. Nach Ablauf der Antwortphase werden die richtigen Antworten markiert; am Schluss zeigt die Tafel die Rangliste.
 
 Die Steuerkonsole liegt unter `/lehrer/konsole/CODE`. Öffne diesen Link auf einem zweiten Gerät und melde dich dort mit dem Lehrer-Konto an. Von dort kann die Lehrkraft das Quiz starten und Frage für Frage weiterschalten. Aus dem Dashboard oder Editor lassen sich Tafel und Steuerkonsole direkt öffnen.
 
-Wenn `schema.sql` bereits im Supabase-Projekt ausgeführt wurde, führe anschließend den Inhalt von `supabase/display-and-console.sql` einmal im SQL Editor aus, damit die Tafel die sichere öffentliche Spielansicht laden kann. Bei einem frischen Projekt: erst `schema.sql`, danach die Migration. Danach veröffentliche die App erneut auf GitHub Pages.
+Wenn die bestehende Datenbank bereits eingerichtet ist, führe `supabase/question-timer.sql` einmal im Supabase SQL Editor aus. Falls `supabase/multiple-choice-answers.sql` noch nicht ausgeführt wurde, führe diese Migration zuerst aus. Die Timer-Migration enthält auch die aktuelle Punktewertung und aktualisiert die sichere Tafelansicht. Bei einem frischen Projekt enthält `supabase/schema.sql` bereits alle Timer-Funktionen; zusätzliche Migrationen sind nicht nötig.
 
-Wenn die bestehende Datenbank schon eingerichtet ist, führe außerdem `supabase/multiple-choice-answers.sql` einmal im SQL Editor aus. Damit werden zwei bis sechs Optionen und mehrere richtige Antworten unterstützt.
-
-Für die zeitabhängige Punktewertung führe bei einer bestehenden Datenbank `supabase/speed-scoring.sql` einmal im SQL Editor aus. Wenn die Datenbank noch nicht auf Mehrfachantworten migriert wurde, führe zuerst `supabase/multiple-choice-answers.sql` aus. Bei einem neuen Projekt enthält das aktuelle `supabase/schema.sql` bereits alle Änderungen; die Migration ist dann nicht nötig. Der Editor erlaubt pro Frage normale, doppelte oder keine Punkte.
+Im Editor können pro Frage normale, doppelte oder keine Punkte eingestellt werden; die zeitabhängige Wertung ist in der Punktewertungs-Migration beziehungsweise im aktuellen Schema enthalten.

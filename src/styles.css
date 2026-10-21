@@ -65,11 +65,15 @@ h1, h2, h3, p { margin-top: 0; }
 .game-card h2 { margin: 12px 0 4px; font: 700 24px "Space Grotesk", sans-serif; }
 .game-card > p { color: var(--muted); line-height: 1.6; }
 .question-progress { margin: 14px 0 8px; color: var(--purple); font-size: 12px; font-weight: 700; }
+.question-timer { margin: 0; color: #a04430; font-size: 13px; font-weight: 700; text-align: right; }
 .player-answer-list { display: grid; gap: 10px; margin-top: 18px; }
 .player-answer { min-height: 54px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: white; text-align: left; font-weight: 600; }
 .player-answer:hover:not(:disabled) { border-color: var(--purple); background: #f7f5ff; }
 .player-answer:disabled { cursor: wait; opacity: .7; }
 .player-answer-selected { outline: 3px solid #6554d944; border-color: var(--purple); background: #f0edff; }
+.answer-review .player-answer { cursor: default; }
+.answer-review .answer-revealed-correct { border-color: #42a979; outline: 3px solid #42a97955; background: #eaf8f0; color: #26784e; }
+.answer-review .answer-review-muted { opacity: .55; }
 .answer-select-hint { margin: 4px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
 .answer-feedback { padding: 14px; border-radius: 10px; font-weight: 700; }
 .answer-feedback.correct { color: #26784e; background: #eaf8f0; }
@@ -202,6 +206,9 @@ h1, h2, h3, p { margin-top: 0; }
 .projector-answer-2 { background: #daa333; }
 .projector-answer-3 { background: #37a877; }
 .projector-answer-shape { width: 32px; flex: 0 0 auto; text-align: center; font-size: 25px; }
+.projector-answer-correct { outline: 4px solid #a5f0bd; box-shadow: 0 0 28px #4fdb7c70, inset 0 -4px #00000020; }
+.projector-answer-muted { opacity: .38; filter: saturate(.55); }
+.projector-correct-label { margin-left: auto; color: #fff; font-size: 11px; letter-spacing: .08em; }
 .projector-progress { height: 7px; background: #ffffff15; }
 .projector-progress span { height: 100%; display: block; border-radius: 0 6px 6px 0; background: linear-gradient(90deg, #7a68ec, #b2a5ff); transition: width .4s ease; }
 .projector-question-players { align-self: start; padding: 22px; border: 1px solid #ffffff1b; border-radius: 16px; background: #ffffff0c; }

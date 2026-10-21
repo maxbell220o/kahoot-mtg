@@ -10,6 +10,9 @@ export interface TeacherGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
+  deadline: string | null;
+  answer_revealed: boolean;
+  answered_count: number;
   players: { name: string; score: number }[];
 }
 
@@ -18,11 +21,16 @@ export interface PublicGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
+  deadline: string | null;
+  answer_revealed: boolean;
+  answered_count: number;
+  player_count: number;
   question: { prompt: string; answers: string[] } | null;
   score: number;
   points_earned: number;
   has_answered: boolean;
   is_correct: boolean | null;
+  correct_answers: number[] | null;
   leaderboard: { name: string; score: number }[] | null;
 }
 
@@ -32,6 +40,10 @@ export interface DisplayGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
+  deadline: string | null;
+  answer_revealed: boolean;
+  correct_answers: number[] | null;
+  answered_count: number;
   question: { prompt: string; answers: string[] } | null;
   players: { name: string; score: number }[];
 }
