@@ -10,7 +10,9 @@ export interface TeacherGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
+  reading_deadline: string | null;
   deadline: string | null;
+  answer_phase_started: boolean;
   answer_revealed: boolean;
   answered_count: number;
   players: { name: string; score: number }[];
@@ -21,7 +23,9 @@ export interface PublicGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
+  reading_deadline: string | null;
   deadline: string | null;
+  answer_phase_started: boolean;
   answer_revealed: boolean;
   answered_count: number;
   player_count: number;
@@ -40,7 +44,9 @@ export interface DisplayGameState {
   status: "waiting" | "question" | "finished";
   current_question: number;
   question_count: number;
+  reading_deadline: string | null;
   deadline: string | null;
+  answer_phase_started: boolean;
   answer_revealed: boolean;
   correct_answers: number[] | null;
   answered_count: number;

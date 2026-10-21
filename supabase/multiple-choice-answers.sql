@@ -9,6 +9,9 @@ alter table public.quiz_answers
   drop constraint if exists quiz_answers_player_id_question_index_key;
 
 alter table public.quiz_answers
+  drop constraint if exists quiz_answers_player_id_question_index_answer_index_key;
+
+alter table public.quiz_answers
   add constraint quiz_answers_player_id_question_index_answer_index_key
   unique (player_id, question_index, answer_index);
 

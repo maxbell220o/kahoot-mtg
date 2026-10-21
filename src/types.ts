@@ -3,6 +3,7 @@ export interface QuizQuestion {
   answers: string[];
   correctAnswers: number[];
   scoringMode: "normal" | "double" | "none";
+  timeLimitSeconds: number;
 }
 
 export interface Quiz {
@@ -15,6 +16,7 @@ export const createEmptyQuestion = (): QuizQuestion => ({
   answers: ["", "", "", ""],
   correctAnswers: [0],
   scoringMode: "normal",
+  timeLimitSeconds: 30,
 });
 
 export function parseQuiz(value: unknown): Quiz {
@@ -79,11 +81,21 @@ export function parseQuiz(value: unknown): Quiz {
       throw new Error(`Frage ${index + 1} hat eine ungültige Punktewertung.`);
     }
 
+    const timeLimitSeconds = question.timeLimitSeconds ?? 30;
+    if (
+      !Number.isInteger(timeLimitSeconds) ||
+      (timeLimitSeconds as number) < 5 ||
+      (timeLimitSeconds as number) > 120
+    ) {
+      throw new Error(`Das Zeitlimit für Frage ${index + 1} muss zwischen 5 und 120 Sekunden liegen.`);
+    }
+
     return {
       prompt: question.prompt,
       answers: [...answers],
       correctAnswers: [...correctAnswers],
       scoringMode,
+      timeLimitSeconds: timeLimitSeconds as number,
     };
   });
 

@@ -93,6 +93,28 @@ begin
 end;
 $$;
 
+create or replace function public.quiz_question_time_limit(p_game_id uuid, p_question_index integer)
+returns integer
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_time_limit integer;
+begin
+  select coalesce((q.questions -> p_question_index ->> 'timeLimitSeconds')::integer, 30)
+  into v_time_limit
+  from public.quiz_games g
+  join public.quizzes q on q.id = g.quiz_id
+  where g.id = p_game_id;
+  if v_time_limit is null or v_time_limit not between 5 and 120 then
+    raise exception 'Das Zeitlimit muss zwischen 5 und 120 Sekunden liegen.';
+  end if;
+  return v_time_limit;
+end;
+$$;
+
 create or replace function public.advance_quiz_game(p_code text)
 returns jsonb
 language plpgsql
@@ -130,8 +152,12 @@ begin
     from public.quiz_answers
     where game_id = v_game.id and question_index = v_game.current_question;
     v_answer_revealed :=
-      clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
-      or (v_player_count > 0 and v_answered_count >= v_player_count);
+      clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+      and (
+        clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+          + (public.quiz_question_time_limit(v_game.id, v_game.current_question) * interval '1 second')
+        or (v_player_count > 0 and v_answered_count >= v_player_count)
+      );
     if not v_answer_revealed then
       raise exception 'Die Frage läuft noch. Warte, bis alle geantwortet haben oder die Zeit abläuft.';
     end if;
@@ -180,8 +206,12 @@ begin
   from public.quiz_answers
   where game_id = v_game.id and question_index = v_game.current_question;
   v_answer_revealed := v_game.status = 'question' and (
-    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
-    or (v_player_count > 0 and v_answered_count >= v_player_count)
+    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+    and (
+      clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+        + (public.quiz_question_time_limit(v_game.id, v_game.current_question) * interval '1 second')
+      or (v_player_count > 0 and v_answered_count >= v_player_count)
+    )
   );
 
   select jsonb_build_object(
@@ -189,7 +219,11 @@ begin
     'status', g.status,
     'current_question', g.current_question,
     'question_count', jsonb_array_length(q.questions),
-    'deadline', case when g.status = 'question' then g.question_started_at + interval '30 seconds' else null end,
+    'reading_deadline', case when g.status = 'question' then g.question_started_at + interval '10 seconds' else null end,
+    'deadline', case when g.status = 'question' then g.question_started_at + interval '10 seconds'
+      + (public.quiz_question_time_limit(g.id, g.current_question) * interval '1 second') else null end,
+    'answer_phase_started', g.status = 'question'
+      and clock_timestamp() >= g.question_started_at + interval '10 seconds',
     'answer_revealed', v_answer_revealed,
     'answered_count', v_answered_count,
     'players', coalesce((
@@ -231,8 +265,12 @@ begin
   from public.quiz_answers
   where game_id = v_game.id and question_index = v_game.current_question;
   v_answer_revealed := v_game.status = 'question' and (
-    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
-    or (v_player_count > 0 and v_answered_count >= v_player_count)
+    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+    and (
+      clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+        + (public.quiz_question_time_limit(v_game.id, v_game.current_question) * interval '1 second')
+      or (v_player_count > 0 and v_answered_count >= v_player_count)
+    )
   );
 
   select jsonb_build_object(
@@ -241,7 +279,11 @@ begin
     'status', g.status,
     'current_question', g.current_question,
     'question_count', jsonb_array_length(q.questions),
-    'deadline', case when g.status = 'question' then g.question_started_at + interval '30 seconds' else null end,
+    'reading_deadline', case when g.status = 'question' then g.question_started_at + interval '10 seconds' else null end,
+    'deadline', case when g.status = 'question' then g.question_started_at + interval '10 seconds'
+      + (public.quiz_question_time_limit(g.id, g.current_question) * interval '1 second') else null end,
+    'answer_phase_started', g.status = 'question'
+      and clock_timestamp() >= g.question_started_at + interval '10 seconds',
     'answer_revealed', v_answer_revealed,
     'answered_count', v_answered_count,
     'player_count', v_player_count,
@@ -253,7 +295,8 @@ begin
     'question', case when g.status = 'question' then
       jsonb_build_object(
         'prompt', q.questions -> g.current_question -> 'prompt',
-        'answers', q.questions -> g.current_question -> 'answers'
+        'answers', case when clock_timestamp() >= g.question_started_at + interval '10 seconds'
+          then q.questions -> g.current_question -> 'answers' else '[]'::jsonb end
       )
       else null
     end,
@@ -320,6 +363,8 @@ declare
   v_player_count integer;
   v_answered_count integer;
   v_answer_revealed boolean;
+  v_time_limit integer;
+  v_answer_phase_started boolean;
 begin
   select * into v_game from public.quiz_games where code = p_code;
   if not found then
@@ -335,6 +380,7 @@ begin
   select * into v_quiz from public.quizzes where id = v_game.quiz_id;
   if v_game.status = 'question' then
     v_question := v_quiz.questions -> v_game.current_question;
+    v_time_limit := coalesce((v_question ->> 'timeLimitSeconds')::integer, 30);
   end if;
 
   select * into v_answer from public.quiz_answers
@@ -344,9 +390,14 @@ begin
   select count(distinct player_id) into v_answered_count
   from public.quiz_answers
   where game_id = v_game.id and question_index = v_game.current_question;
+  v_answer_phase_started := v_game.status = 'question'
+    and clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds';
   v_answer_revealed := v_game.status = 'question' and (
-    clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds'
-    or (v_player_count > 0 and v_answered_count >= v_player_count)
+    v_answer_phase_started and (
+      clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds'
+        + (v_time_limit * interval '1 second')
+      or (v_player_count > 0 and v_answered_count >= v_player_count)
+    )
   );
 
   return jsonb_build_object(
@@ -354,7 +405,10 @@ begin
     'status', v_game.status,
     'current_question', v_game.current_question,
     'question_count', jsonb_array_length(v_quiz.questions),
-    'deadline', case when v_game.status = 'question' then v_game.question_started_at + interval '30 seconds' else null end,
+    'reading_deadline', case when v_game.status = 'question' then v_game.question_started_at + interval '10 seconds' else null end,
+    'deadline', case when v_game.status = 'question' then v_game.question_started_at + interval '10 seconds'
+      + (v_time_limit * interval '1 second') else null end,
+    'answer_phase_started', v_answer_phase_started,
     'answer_revealed', v_answer_revealed,
     'answered_count', v_answered_count,
     'player_count', v_player_count,
@@ -363,7 +417,10 @@ begin
       else jsonb_build_array((v_question ->> 'correctAnswer')::integer) end
       else null end,
     'question', case when v_question is null then null else
-      jsonb_build_object('prompt', v_question -> 'prompt', 'answers', v_question -> 'answers') end,
+      jsonb_build_object(
+        'prompt', v_question -> 'prompt',
+        'answers', case when v_answer_phase_started then v_question -> 'answers' else '[]'::jsonb end
+      ) end,
     'score', v_player.score,
     'points_earned', coalesce(v_answer.points_earned, 0),
     'has_answered', v_answer.id is not null,
@@ -397,6 +454,8 @@ declare
   v_answer_points integer := 0;
   v_player_count integer;
   v_answered_count integer;
+  v_time_limit integer;
+  v_answer_started_at timestamptz;
 begin
   select * into v_game from public.quiz_games where code = p_code for update;
   if not found or v_game.status <> 'question' then
@@ -411,6 +470,8 @@ begin
 
   select * into v_quiz from public.quizzes where id = v_game.quiz_id;
   v_question := v_quiz.questions -> v_game.current_question;
+  v_time_limit := coalesce((v_question ->> 'timeLimitSeconds')::integer, 30);
+  v_answer_started_at := v_game.question_started_at + interval '10 seconds';
   if jsonb_typeof(v_question -> 'correctAnswers') = 'array' then
     v_correct_answers := v_question -> 'correctAnswers';
   else
@@ -448,9 +509,11 @@ begin
     end case;
     v_elapsed_seconds := greatest(
       0,
-      extract(epoch from (clock_timestamp() - v_game.question_started_at))
+      extract(epoch from (clock_timestamp() - v_answer_started_at))
     );
-    v_points := floor(v_base_points * greatest(0.5, 1 - least(v_elapsed_seconds, 30) / 60.0));
+    v_points := floor(
+      v_base_points * greatest(0.5, 1 - least(v_elapsed_seconds, v_time_limit) / (v_time_limit * 2.0))
+    );
   end if;
 
   if exists (
@@ -471,7 +534,10 @@ begin
     );
   end if;
 
-  if clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '30 seconds' then
+  if clock_timestamp() < v_answer_started_at then
+    raise exception 'Bitte lies zuerst die Frage. Die Antwortmöglichkeiten erscheinen gleich.';
+  end if;
+  if clock_timestamp() >= v_answer_started_at + (v_time_limit * interval '1 second') then
     raise exception 'Die Antwortzeit ist abgelaufen.';
   end if;
   select count(*) into v_player_count from public.quiz_players where game_id = v_game.id;
@@ -500,6 +566,7 @@ end;
 $$;
 
 revoke all on function public.start_quiz_game(uuid) from public;
+revoke all on function public.quiz_question_time_limit(uuid, integer) from public;
 revoke all on function public.advance_quiz_game(text) from public;
 revoke all on function public.get_teacher_game_state(text) from public;
 revoke all on function public.get_public_quiz_display(text) from public;

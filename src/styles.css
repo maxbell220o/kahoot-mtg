@@ -216,6 +216,12 @@ h1, h2, h3, p { margin-top: 0; }
 .projector-answer-count span { color: #bcb5d4; font: 500 12px "DM Sans", sans-serif; }
 .projector-question-players h2 { margin: 20px 0 12px; color: #d2cdec; font: 700 12px "Space Grotesk", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .projector-question-players li { overflow: hidden; padding: 8px 10px; border-radius: 6px; color: #f2efff; background: #ffffff0d; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.projector-scoreboard { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.projector-scoreboard li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 8px; border: 1px solid #ffffff12; border-radius: 8px; color: #f2efff; background: #ffffff0d; }
+.scoreboard-rank { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; color: #292147; background: #d7cffd; font-size: 12px; font-weight: 700; }
+.projector-scoreboard li:nth-child(-n+3) .scoreboard-rank { color: #30265f; background: #f7d778; }
+.scoreboard-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projector-scoreboard strong { color: #d9d0ff; font-size: 12px; }
 .projector-more { display: block; margin-top: 10px; color: #bcb5d4; font-size: 11px; }
 .projector-finished { width: min(850px, 100%); flex: 1; align-self: center; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 35px 22px; text-align: center; }
 .projector-podium { width: min(100%, 650px); display: grid; gap: 9px; margin: 30px 0 0; padding: 0; list-style: none; text-align: left; }
@@ -269,6 +275,10 @@ h1, h2, h3, p { margin-top: 0; }
 .scoring-mode select { min-height: 43px; padding: 0 12px; border: 1px solid #dedbe8; border-radius: 9px; color: #26213c; background: #fff; }
 .scoring-mode select:focus { border-color: var(--purple); outline: none; box-shadow: 0 0 0 3px #6554d91c; }
 .scoring-mode .field-hint { margin: 0; line-height: 1.5; }
+.time-limit-input { display: flex; align-items: center; gap: 10px; }
+.time-limit-input input { width: 120px; min-height: 43px; padding: 0 12px; border: 1px solid #dedbe8; border-radius: 9px; color: #26213c; background: #fff; }
+.time-limit-input input:focus { border-color: var(--purple); outline: none; box-shadow: 0 0 0 3px #6554d91c; }
+.time-limit-input span { color: var(--muted); font-size: 13px; }
 .question-number { width: 38px; height: 38px; }
 .text-button { border: 0; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-text { color: #c34e61; }

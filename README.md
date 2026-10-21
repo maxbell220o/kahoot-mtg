@@ -21,13 +21,14 @@ Im [Lehrerbereich](/lehrer) lassen sich Quizze erstellen, als JSON herunterladen
       "prompt": "Welche Antwort ist richtig?",
       "answers": ["Antwort A", "Antwort B", "Antwort C"],
       "correctAnswers": [0, 2],
-      "scoringMode": "normal"
+      "scoringMode": "normal",
+      "timeLimitSeconds": 30
     }
   ]
 }
 ```
 
-Jede Frage enthält zwei bis sechs Antworten. `correctAnswers` enthält die nullbasierten Indizes aller richtigen Antworten. `scoringMode` ist `normal` (bis zu 1.000 Punkte), `double` (bis zu 2.000 Punkte) oder `none`; fehlt der Wert, wird `normal` verwendet. Richtige Antworten erhalten abhängig vom Tempo innerhalb von 30 Sekunden zwischen 100 % und 50 % des Höchstwerts. Ältere Quizdateien mit `correctAnswer` werden beim Import weiter unterstützt.
+Jede Frage enthält zwei bis sechs Antworten. `correctAnswers` enthält die nullbasierten Indizes aller richtigen Antworten. `scoringMode` ist `normal` (bis zu 1.000 Punkte), `double` (bis zu 2.000 Punkte) oder `none`; fehlt der Wert, wird `normal` verwendet. `timeLimitSeconds` legt das Zeitlimit von 5 bis 120 Sekunden fest; fehlt der Wert, gelten 30 Sekunden. Richtige Antworten erhalten abhängig vom Tempo bis zum jeweiligen Zeitlimit zwischen 100 % und 50 % des Höchstwerts. Ältere Quizdateien mit `correctAnswer` werden beim Import weiter unterstützt.
 
 ## GitHub Pages
 
@@ -51,16 +52,16 @@ Der Lehrerbereich unter `/lehrer` verwendet Supabase Auth mit E-Mail-Adresse und
 5. In Supabase unter **Authentication → URL Configuration** setze die Site URL auf die veröffentlichte GitHub-Pages-Adresse. Füge diese Adresse zusätzlich zu den Redirect URLs hinzu.
 6. Öffne in Supabase **SQL Editor → New query**, kopiere den Inhalt von `supabase/schema.sql` hinein und klicke **Run**. Das richtet Quiz-, Spiel-, Spieler- und Antworttabellen samt Row-Level-Security und sicheren Spiel-Funktionen ein.
 
-Danach kann eine Lehrkraft ein Quiz speichern oder direkt starten. Während des Spiels zeigt die App einen Zutrittscode; Schüler öffnen `/`, geben Code und Namen ein und beantworten die freigegebenen Fragen. Die App fragt den Spielstatus regelmäßig ab. Jede Frage hat ein 30-Sekunden-Zeitlimit. Die Frage wird automatisch aufgelöst, sobald alle beigetretenen Schüler geantwortet haben oder die Zeit abläuft; die richtigen Antworten werden dann auf der Tafel und bei den Schülern markiert. Danach schaltet die Lehrkraft über die Steuerkonsole zur nächsten Frage weiter. Antworten werden serverseitig ausgewertet; bei Fragen mit mehreren richtigen Antworten müssen alle korrekten Optionen ausgewählt sein.
+Danach kann eine Lehrkraft ein Quiz speichern oder direkt starten. Während des Spiels zeigt die App einen Zutrittscode; Schüler öffnen `/` und geben Code und Namen ein. Bei jeder Frage sehen alle zuerst zehn Sekunden lang nur die Frage zum Lesen. Anschließend erscheinen die Antworten und das einstellbare Zeitlimit von 5 bis 120 Sekunden (Standard: 30) beginnt. Die Frage wird automatisch aufgelöst, sobald alle beigetretenen Schüler geantwortet haben oder die Antwortzeit abläuft; dann werden die richtigen Antworten auf der Tafel und bei den Schülern markiert. Danach schaltet die Lehrkraft über die Steuerkonsole zur nächsten Frage weiter. Antworten werden serverseitig ausgewertet; bei Fragen mit mehreren richtigen Antworten müssen alle korrekten Optionen ausgewählt sein.
 
 Der Publishable key ist für den Einsatz im Browser bestimmt. Verwende niemals den `service_role`-Schlüssel in der App oder in GitHub Pages. Die Datei `supabase/schema.sql` ist für ein frisches Projekt gedacht. Führe sie nicht erneut aus, wenn die Tabellen dort bereits angelegt wurden.
 
 ## Tafel und separate Steuerkonsole
 
-Die Tafelansicht unter `/tafel/CODE` ist für den Projektor oder ein großes Display gedacht. Sie zeigt den Spielcode, die aktuelle Frage, zwei bis sechs Antwortmöglichkeiten, den Countdown und die Teilnehmenden. Nach Ablauf der Antwortphase werden die richtigen Antworten markiert; am Schluss zeigt die Tafel die Rangliste.
+Die Tafelansicht unter `/tafel/CODE` ist für den Projektor oder ein großes Display gedacht. Sie zeigt den Spielcode und zuerst zehn Sekunden lang nur die Frage. Danach zeigt sie die Antwortmöglichkeiten, den Countdown und die Teilnehmenden. Nach Ablauf der Antwortphase werden die richtigen Antworten markiert und die Top 5 als Scoreboard eingeblendet; am Schluss zeigt die Tafel die Rangliste.
 
 Die Steuerkonsole liegt unter `/lehrer/konsole/CODE`. Öffne diesen Link auf einem zweiten Gerät und melde dich dort mit dem Lehrer-Konto an. Von dort kann die Lehrkraft das Quiz starten und Frage für Frage weiterschalten. Aus dem Dashboard oder Editor lassen sich Tafel und Steuerkonsole direkt öffnen.
 
-Wenn die bestehende Datenbank bereits eingerichtet ist, führe `supabase/question-timer.sql` einmal im Supabase SQL Editor aus. Falls `supabase/multiple-choice-answers.sql` noch nicht ausgeführt wurde, führe diese Migration zuerst aus. Die Timer-Migration enthält auch die aktuelle Punktewertung und aktualisiert die sichere Tafelansicht. Bei einem frischen Projekt enthält `supabase/schema.sql` bereits alle Timer-Funktionen; zusätzliche Migrationen sind nicht nötig.
+Wenn die bestehende Datenbank bereits eingerichtet ist und `supabase/multiple-choice-answers.sql` noch nicht ausgeführt wurde, führe diese Migration zuerst aus. Führe danach die aktuelle Version von `supabase/question-timer.sql` im Supabase SQL Editor aus – auch dann erneut, wenn du eine frühere Version davon bereits ausgeführt hast. Sie korrigiert auch die Antworttabellen-Regel, damit pro Schüler und Frage mehrere Antwortoptionen gespeichert werden können, und enthält die zehn Sekunden Lesezeit, die variable Antwortzeit sowie die Punktewertung. Bei einem frischen Projekt enthält `supabase/schema.sql` bereits den vollständigen Ablauf; zusätzliche Migrationen sind nicht nötig.
 
 Im Editor können pro Frage normale, doppelte oder keine Punkte eingestellt werden; die zeitabhängige Wertung ist in der Punktewertungs-Migration beziehungsweise im aktuellen Schema enthalten.

@@ -70,8 +70,12 @@ function StudentHome() {
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
   const [answering, setAnswering] = useState(false);
-  const secondsRemaining = useCountdown(gameState?.deadline ?? null);
-  const answerPhaseOver = Boolean(gameState?.answer_revealed || secondsRemaining === 0);
+  const readingSecondsRemaining = useCountdown(gameState?.reading_deadline ?? null);
+  const answerSecondsRemaining = useCountdown(gameState?.deadline ?? null);
+  const answerPhaseStarted = Boolean(gameState?.answer_phase_started || readingSecondsRemaining === 0);
+  const answerPhaseOver = Boolean(
+    gameState?.answer_revealed || (answerPhaseStarted && answerSecondsRemaining === 0),
+  );
 
   useEffect(() => {
     if (!playerId || !code) return;
@@ -166,9 +170,13 @@ function StudentHome() {
           ) : (
             <>
               <p className="question-progress">Frage {gameState.current_question + 1} von {gameState.question_count}</p>
-              {!answerPhaseOver && secondsRemaining !== null && (
-                <p className="question-timer" role="timer">Noch {secondsRemaining} Sekunden</p>
-              )}
+              {!answerPhaseStarted ? (
+                <p className="question-timer" role="timer">
+                  Lies die Frage. Antworten erscheinen in {readingSecondsRemaining ?? 10} Sekunden.
+                </p>
+              ) : !answerPhaseOver && answerSecondsRemaining !== null ? (
+                <p className="question-timer" role="timer">Noch {answerSecondsRemaining} Sekunden</p>
+              ) : null}
               <h2>{gameState.question?.prompt}</h2>
               {(gameState.has_answered || answerPhaseOver) && (
                 <p className={gameState.is_correct ? "answer-feedback correct" : "answer-feedback incorrect"} role="status">
@@ -176,7 +184,7 @@ function StudentHome() {
                     ? gameState.is_correct
                       ? `Richtig! +${gameState.points_earned.toLocaleString("de-DE")} Punkte.`
                       : "Leider falsch."
-                    : secondsRemaining !== null && secondsRemaining > 0
+                    : answerPhaseStarted && answerSecondsRemaining !== null && answerSecondsRemaining > 0
                       ? "Alle haben geantwortet – du hast keine Antwort abgegeben."
                       : "Zeit abgelaufen – du hast keine Antwort abgegeben."}{" "}
                   · Punktestand: {gameState.score.toLocaleString("de-DE")}
@@ -187,7 +195,7 @@ function StudentHome() {
                       : <><br />Warte auf die Antworten der anderen.</>}
                 </p>
               )}
-              {!gameState.has_answered && !answerPhaseOver && (
+              {!gameState.has_answered && answerPhaseStarted && !answerPhaseOver && (
                 <div className="player-answer-list">
                   {gameState.question?.answers.map((answer, index) => (
                     <button
@@ -279,6 +287,9 @@ function validateQuiz(quiz: Quiz): string | null {
   if (quiz.questions.length === 0) return "Füge mindestens eine Frage hinzu.";
   for (let index = 0; index < quiz.questions.length; index += 1) {
     const question = quiz.questions[index];
+    if (!Number.isInteger(question.timeLimitSeconds) || question.timeLimitSeconds < 5 || question.timeLimitSeconds > 120) {
+      return `Das Zeitlimit für Frage ${index + 1} muss zwischen 5 und 120 Sekunden liegen.`;
+    }
     if (!question.prompt.trim()) return `Bitte ergänze den Text von Frage ${index + 1}.`;
     if (question.answers.length < 2 || question.answers.length > 6) {
       return `Frage ${index + 1} braucht zwei bis sechs Antwortmöglichkeiten.`;
@@ -561,8 +572,12 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const secondsRemaining = useCountdown(game?.deadline ?? null);
-  const answerPhaseOver = Boolean(game?.answer_revealed || secondsRemaining === 0);
+  const readingSecondsRemaining = useCountdown(game?.reading_deadline ?? null);
+  const answerSecondsRemaining = useCountdown(game?.deadline ?? null);
+  const answerPhaseStarted = Boolean(game?.answer_phase_started || readingSecondsRemaining === 0);
+  const answerPhaseOver = Boolean(
+    game?.answer_revealed || (answerPhaseStarted && answerSecondsRemaining === 0),
+  );
   const displayUrl = `${window.location.origin}${import.meta.env.BASE_URL}tafel/${code}`;
 
   useEffect(() => {
@@ -665,7 +680,9 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
                     ? "Das Ergebnis wird auf der Tafel angezeigt."
                     : answerPhaseOver
                       ? "Die richtige Antwort wird auf der Tafel angezeigt."
-                      : `Antworten eingegangen: ${game.answered_count} von ${game.players.length}. Noch ${secondsRemaining ?? 30} Sekunden.`}
+                      : !answerPhaseStarted
+                        ? `Lesezeit: noch ${readingSecondsRemaining ?? 10} Sekunden.`
+                        : `Antworten eingegangen: ${game.answered_count} von ${game.players.length}. Noch ${answerSecondsRemaining ?? 30} Sekunden.`}
               </p>
             </section>
             <section className="panel console-players-card">
@@ -685,8 +702,12 @@ function ProjectorDisplay() {
   const { code = "" } = useParams();
   const [game, setGame] = useState<DisplayGameState | null>(null);
   const [error, setError] = useState("");
-  const secondsRemaining = useCountdown(game?.deadline ?? null);
-  const answerPhaseOver = Boolean(game?.answer_revealed || secondsRemaining === 0);
+  const readingSecondsRemaining = useCountdown(game?.reading_deadline ?? null);
+  const answerSecondsRemaining = useCountdown(game?.deadline ?? null);
+  const answerPhaseStarted = Boolean(game?.answer_phase_started || readingSecondsRemaining === 0);
+  const answerPhaseOver = Boolean(
+    game?.answer_revealed || (answerPhaseStarted && answerSecondsRemaining === 0),
+  );
 
   useEffect(() => {
     let active = true;
@@ -773,10 +794,12 @@ function ProjectorDisplay() {
                   ? "Richtige Antwort"
                   : answerPhaseOver
                     ? "Zeit abgelaufen – Antworten werden aufgelöst"
-                    : `Noch ${secondsRemaining ?? 30} Sekunden · ${game.answered_count} von ${game.players.length} Antworten`}
+                    : !answerPhaseStarted
+                      ? `Lies die Frage · Antworten erscheinen in ${readingSecondsRemaining ?? 10} Sekunden`
+                      : `Noch ${answerSecondsRemaining ?? 30} Sekunden · ${game.answered_count} von ${game.players.length} Antworten`}
               </span>
               <h1>{game.question?.prompt}</h1>
-              <div className="projector-answers">
+              {answerPhaseStarted && <div className="projector-answers">
                 {game.question?.answers.map((answer, index) => (
                   <div className={`projector-answer projector-answer-${index % 4} ${game.answer_revealed && game.correct_answers?.includes(index) ? "projector-answer-correct" : game.answer_revealed ? "projector-answer-muted" : ""}`} key={index}>
                       <span className="projector-answer-shape">{["▲", "◆", "●", "■", "★", "⬟"][index]}</span>
@@ -784,15 +807,32 @@ function ProjectorDisplay() {
                     {game.answer_revealed && game.correct_answers?.includes(index) && <strong className="projector-correct-label">RICHTIG</strong>}
                   </div>
                 ))}
-              </div>
+              </div>}
             </div>
             <div className="projector-progress"><span style={{ width: `${((game.current_question + 1) / game.question_count) * 100}%` }} /></div>
           </section>
           <aside className="projector-question-players">
             <div className="projector-answer-count">{game.answered_count}<span>von {game.players.length} Antworten</span></div>
-            <h2>Spieler</h2>
-            <ul>{game.players.slice(0, 12).map((player, index) => <li key={`${player.name}-${index}`}>{player.name}</li>)}</ul>
-            {game.players.length > 12 && <span className="projector-more">und {game.players.length - 12} weitere ...</span>}
+            {game.answer_revealed ? (
+              <>
+                <h2>Top 5 · Scoreboard</h2>
+                <ol className="projector-scoreboard">
+                  {game.players.slice(0, 5).map((player, index) => (
+                    <li key={`${player.name}-${index}`}>
+                      <span className="scoreboard-rank">{index + 1}</span>
+                      <span className="scoreboard-name">{player.name}</span>
+                      <strong>{player.score.toLocaleString("de-DE")}</strong>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : (
+              <>
+                <h2>Spieler</h2>
+                <ul>{game.players.slice(0, 12).map((player, index) => <li key={`${player.name}-${index}`}>{player.name}</li>)}</ul>
+                {game.players.length > 12 && <span className="projector-more">und {game.players.length - 12} weitere ...</span>}
+              </>
+            )}
           </aside>
         </div>
       )}
@@ -810,8 +850,10 @@ function TeacherGamePanel({
   busy: boolean;
 }) {
   const [copyMessage, setCopyMessage] = useState("");
-  const secondsRemaining = useCountdown(game.deadline);
-  const answerPhaseOver = game.answer_revealed || secondsRemaining === 0;
+  const readingSecondsRemaining = useCountdown(game.reading_deadline);
+  const answerSecondsRemaining = useCountdown(game.deadline);
+  const answerPhaseStarted = game.answer_phase_started || readingSecondsRemaining === 0;
+  const answerPhaseOver = game.answer_revealed || (answerPhaseStarted && answerSecondsRemaining === 0);
 
   async function copyCode() {
     try {
@@ -854,7 +896,9 @@ function TeacherGamePanel({
               ? "Das Quiz ist beendet."
               : answerPhaseOver
                 ? `Antwort aufgelöst · ${game.answered_count} von ${game.players.length} haben geantwortet.`
-                : `Frage ${game.current_question + 1} von ${game.question_count} · ${game.answered_count} von ${game.players.length} Antworten · noch ${secondsRemaining ?? 30} Sekunden`}
+                : !answerPhaseStarted
+                  ? `Frage ${game.current_question + 1} von ${game.question_count} · Lesezeit: ${readingSecondsRemaining ?? 10} Sekunden`
+                  : `Frage ${game.current_question + 1} von ${game.question_count} · ${game.answered_count} von ${game.players.length} Antworten · noch ${answerSecondsRemaining ?? 30} Sekunden`}
         </p>
         {game.status !== "finished" && (
           <button className="button button-primary" onClick={onAdvance} disabled={busy || (game.status === "question" && !answerPhaseOver)}>
@@ -1147,6 +1191,7 @@ function TeacherEditor({
                   <span className="question-correct-count">
                     · {question.correctAnswers.length} richtig
                   </span>
+                  <span>· {question.timeLimitSeconds} Sek.</span>
                   <span>· {question.scoringMode === "double" ? "2× Punkte" : question.scoringMode === "none" ? "0 Punkte" : "1× Punkte"}</span>
                   <span className="question-chevron" aria-hidden="true">⌄</span>
                 </span>
@@ -1174,6 +1219,24 @@ function TeacherEditor({
                   placeholder="Zum Beispiel: Welcher Planet ist der größte?"
                 />
                 <div className="scoring-mode">
+                  <label className="field-label" htmlFor={`time-limit-${questionIndex}`}>Zeitlimit</label>
+                  <div className="time-limit-input">
+                    <input
+                      id={`time-limit-${questionIndex}`}
+                      type="number"
+                      min={5}
+                      max={120}
+                      step={1}
+                      value={question.timeLimitSeconds}
+                      onChange={(event) => updateQuestion(questionIndex, {
+                        timeLimitSeconds: event.target.value === "" ? 0 : Number(event.target.value),
+                      })}
+                    />
+                    <span>Sekunden</span>
+                  </div>
+                  <span className="field-hint">Zwischen 5 und 120 Sekunden. Die Zeit läuft ab Freigabe der Frage.</span>
+                </div>
+                <div className="scoring-mode">
                   <label className="field-label" htmlFor={`scoring-${questionIndex}`}>Punktewertung</label>
                   <select
                     id={`scoring-${questionIndex}`}
@@ -1186,7 +1249,7 @@ function TeacherEditor({
                     <option value="double">Doppelte Punkte (bis zu 2.000)</option>
                     <option value="none">Keine Punkte</option>
                   </select>
-                  <span className="field-hint">Für richtige Antworten gibt es je nach Antworttempo mehr Punkte. Der Tempo-Bonus sinkt über 30 Sekunden bis zur Hälfte.</span>
+                  <span className="field-hint">Für richtige Antworten gibt es je nach Antworttempo mehr Punkte. Der Tempo-Bonus sinkt über die eingestellte Zeit bis zur Hälfte.</span>
                 </div>
                 <fieldset className="answers-fieldset">
                   <legend>
