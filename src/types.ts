@@ -1,5 +1,6 @@
 export interface QuizQuestion {
   prompt: string;
+  answerType: "multiple-choice" | "text";
   answers: string[];
   correctAnswers: number[];
   scoringMode: "normal" | "double" | "none";
@@ -13,6 +14,7 @@ export interface Quiz {
 
 export const createEmptyQuestion = (): QuizQuestion => ({
   prompt: "",
+  answerType: "multiple-choice",
   answers: ["", "", "", ""],
   correctAnswers: [0],
   scoringMode: "normal",
@@ -40,19 +42,23 @@ export function parseQuiz(value: unknown): Quiz {
     }
 
     const question = item as Record<string, unknown>;
+    const answerType = question.answerType ?? "multiple-choice";
+    if (answerType !== "multiple-choice" && answerType !== "text") {
+      throw new Error(`Frage ${index + 1} hat einen ungültigen Antworttyp.`);
+    }
     if (
       typeof question.prompt !== "string" ||
       question.prompt.trim() === "" ||
       !Array.isArray(question.answers) ||
-      question.answers.length < 2 ||
-      question.answers.length > 6 ||
+      question.answers.length < (answerType === "text" ? 1 : 2) ||
+      (answerType === "multiple-choice" && question.answers.length > 6) ||
       !question.answers.every(
         (answer): answer is string => typeof answer === "string" && answer.trim() !== "",
       )
     ) {
-      throw new Error(
-        `Frage ${index + 1} braucht einen Text und zwei bis sechs ausgefüllte Antworten.`,
-      );
+      throw new Error(answerType === "text"
+        ? `Frage ${index + 1} braucht einen Text und mindestens eine akzeptierte Antwort.`
+        : `Frage ${index + 1} braucht einen Text und zwei bis sechs ausgefüllte Antworten.`);
     }
 
     const answers = question.answers;
@@ -61,20 +67,34 @@ export function parseQuiz(value: unknown): Quiz {
       : Number.isInteger(question.correctAnswer)
         ? [question.correctAnswer]
         : [];
+    if (answerType === "text") {
+      if (answers.some((answer) => answer.length > 120)) {
+        throw new Error(`Akzeptierte Antworten bei Frage ${index + 1} dürfen höchstens 120 Zeichen lang sein.`);
+      }
+      if (new Set(answers.map((answer) => answer.trim().toLocaleLowerCase("de"))).size !== answers.length) {
+        throw new Error(`Frage ${index + 1} enthält doppelte akzeptierte Antworten.`);
+      }
+    }
     if (
+      answerType === "multiple-choice" && (
       correctAnswers.length === 0 ||
       !correctAnswers.every(
-        (answer): answer is number =>
+        (answer) =>
+          typeof answer === "number" &&
           Number.isInteger(answer) &&
-          (answer as number) >= 0 &&
-          (answer as number) < answers.length,
+          answer >= 0 &&
+          answer < answers.length,
       ) ||
       new Set(correctAnswers).size !== correctAnswers.length
+      )
     ) {
       throw new Error(
         `Frage ${index + 1} braucht einen Text, zwei bis sechs Antworten und mindestens eine richtige Antwort.`,
       );
     }
+    const validCorrectAnswers = correctAnswers.filter(
+      (answer): answer is number => typeof answer === "number",
+    );
 
     const scoringMode = question.scoringMode ?? "normal";
     if (scoringMode !== "normal" && scoringMode !== "double" && scoringMode !== "none") {
@@ -92,8 +112,9 @@ export function parseQuiz(value: unknown): Quiz {
 
     return {
       prompt: question.prompt,
+      answerType,
       answers: [...answers],
-      correctAnswers: [...correctAnswers],
+      correctAnswers: answerType === "text" ? answers.map((_, answerIndex) => answerIndex) : validCorrectAnswers,
       scoringMode,
       timeLimitSeconds: timeLimitSeconds as number,
     };

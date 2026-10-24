@@ -1,6 +1,9 @@
 alter table public.quiz_games
   add column if not exists question_started_at timestamptz;
 
+alter table public.quiz_games
+  add column if not exists scoreboard_revealed boolean not null default false;
+
 alter table public.quiz_answers
   add column if not exists points_earned integer not null default 0
   check (points_earned >= 0);
@@ -108,6 +111,7 @@ begin
     'answer_phase_started', g.status = 'question'
       and clock_timestamp() >= g.question_started_at + interval '10 seconds',
     'answer_revealed', public.quiz_question_is_revealed(g.id, g.current_question),
+    'scoreboard_revealed', g.scoreboard_revealed,
     'answered_count', v_answered_count,
     'players', coalesce((
       select jsonb_agg(jsonb_build_object('name', p.name, 'score', p.score) order by p.score desc, p.joined_at)
@@ -159,6 +163,7 @@ begin
     'answer_phase_started', g.status = 'question'
       and clock_timestamp() >= g.question_started_at + interval '10 seconds',
     'answer_revealed', v_revealed,
+    'scoreboard_revealed', g.scoreboard_revealed,
     'correct_answers', case when v_revealed then
       case when jsonb_typeof(q.questions -> g.current_question -> 'correctAnswers') = 'array'
         then q.questions -> g.current_question -> 'correctAnswers'
@@ -169,8 +174,20 @@ begin
     'question', case when g.status = 'question' then
       jsonb_build_object(
         'prompt', q.questions -> g.current_question -> 'prompt',
-        'answers', case when clock_timestamp() >= g.question_started_at + interval '10 seconds'
-          then q.questions -> g.current_question -> 'answers' else '[]'::jsonb end
+        'answer_type', coalesce(q.questions -> g.current_question ->> 'answerType', 'multiple-choice'),
+        'allow_multiple_answers', case
+          when coalesce(q.questions -> g.current_question ->> 'answerType', 'multiple-choice') = 'text' then false
+          when jsonb_typeof(q.questions -> g.current_question -> 'correctAnswers') = 'array'
+            then jsonb_array_length(q.questions -> g.current_question -> 'correctAnswers') > 1
+          else false
+        end,
+        'answers', case
+          when coalesce(q.questions -> g.current_question ->> 'answerType', 'multiple-choice') = 'text'
+            then case when v_revealed then q.questions -> g.current_question -> 'answers' else '[]'::jsonb end
+          when clock_timestamp() >= g.question_started_at + interval '10 seconds'
+            then q.questions -> g.current_question -> 'answers'
+          else '[]'::jsonb
+        end
       )
       else null
     end,
@@ -231,7 +248,8 @@ begin
   where game_id = v_game.id and question_index = v_game.current_question;
   v_answer_phase_started := v_game.status = 'question'
     and clock_timestamp() >= coalesce(v_game.question_started_at, clock_timestamp()) + interval '10 seconds';
-  v_revealed := public.quiz_question_is_revealed(v_game.id, v_game.current_question);
+  v_revealed := v_game.status = 'finished'
+    or public.quiz_question_is_revealed(v_game.id, v_game.current_question);
 
   return jsonb_build_object(
     'title', v_quiz.title,
@@ -252,12 +270,27 @@ begin
     'question', case when v_question is null then null else
       jsonb_build_object(
         'prompt', v_question -> 'prompt',
-        'answers', case when v_answer_phase_started then v_question -> 'answers' else '[]'::jsonb end
+        'answer_type', coalesce(v_question ->> 'answerType', 'multiple-choice'),
+        'allow_multiple_answers', case
+          when coalesce(v_question ->> 'answerType', 'multiple-choice') = 'text' then false
+          when jsonb_typeof(v_question -> 'correctAnswers') = 'array'
+            then jsonb_array_length(v_question -> 'correctAnswers') > 1
+          else false
+        end,
+        'answers', case
+          when coalesce(v_question ->> 'answerType', 'multiple-choice') = 'text'
+            then case when v_revealed then v_question -> 'answers' else '[]'::jsonb end
+          when v_answer_phase_started then v_question -> 'answers'
+          else '[]'::jsonb
+        end
       ) end,
-    'score', v_player.score,
-    'points_earned', coalesce(v_answer.points_earned, 0),
+    'score', v_player.score - case
+      when not v_revealed and v_answer.id is not null then coalesce(v_answer.points_earned, 0)
+      else 0
+    end,
+    'points_earned', case when v_revealed then coalesce(v_answer.points_earned, 0) else 0 end,
     'has_answered', v_answer.id is not null,
-    'is_correct', case when v_answer.id is null then null else v_answer.is_correct end,
+    'is_correct', case when v_revealed and v_answer.id is not null then v_answer.is_correct else null end,
     'leaderboard', case when v_game.status = 'finished' then coalesce((
       select jsonb_agg(jsonb_build_object('name', p.name, 'score', p.score) order by p.score desc, p.joined_at)
       from public.quiz_players p where p.game_id = v_game.id
@@ -290,20 +323,30 @@ begin
 
   if v_game.status = 'waiting' then
     update public.quiz_games
-    set status = 'question', current_question = 0, question_started_at = clock_timestamp()
+    set status = 'question', current_question = 0, question_started_at = clock_timestamp(), scoreboard_revealed = false
     where id = v_game.id;
   elsif v_game.status = 'question' then
     if not public.quiz_question_is_revealed(v_game.id, v_game.current_question) then
       raise exception 'Die Frage läuft noch. Warte, bis alle geantwortet haben oder die Zeit abläuft.';
     end if;
-    if v_game.current_question + 1 < v_question_count then
-      update public.quiz_games
-      set current_question = current_question + 1, question_started_at = clock_timestamp()
-      where id = v_game.id;
+    if not v_game.scoreboard_revealed then
+      if v_game.current_question + 1 = v_question_count then
+        update public.quiz_games
+        set status = 'finished', question_started_at = null, scoreboard_revealed = false
+        where id = v_game.id;
+      else
+        update public.quiz_games set scoreboard_revealed = true where id = v_game.id;
+      end if;
     else
-      update public.quiz_games
-      set status = 'finished', question_started_at = null
-      where id = v_game.id;
+      if v_game.current_question + 1 < v_question_count then
+        update public.quiz_games
+        set current_question = current_question + 1, question_started_at = clock_timestamp(), scoreboard_revealed = false
+        where id = v_game.id;
+      else
+        update public.quiz_games
+        set status = 'finished', question_started_at = null, scoreboard_revealed = false
+        where id = v_game.id;
+      end if;
     end if;
   else
     raise exception 'Das Quiz ist bereits beendet.';
@@ -361,11 +404,7 @@ begin
     from public.quiz_answers
     where player_id = v_player.id and question_index = v_game.current_question;
     select * into v_player from public.quiz_players where id = v_player.id;
-    return jsonb_build_object(
-      'is_correct', v_correct,
-      'score', v_player.score,
-      'points_earned', v_answer_points
-    );
+    return jsonb_build_object('submitted', true);
   end if;
 
   if clock_timestamp() < v_answer_started_at then
@@ -385,6 +424,9 @@ begin
 
   select * into v_quiz from public.quizzes where id = v_game.quiz_id;
   v_question := v_quiz.questions -> v_game.current_question;
+  if coalesce(v_question ->> 'answerType', 'multiple-choice') <> 'multiple-choice' then
+    raise exception 'Diese Frage erwartet eine Texteingabe.';
+  end if;
   if jsonb_typeof(v_question -> 'correctAnswers') = 'array' then
     v_correct_answers := v_question -> 'correctAnswers';
   else
@@ -433,11 +475,98 @@ begin
   end if;
 
   select * into v_player from public.quiz_players where id = v_player.id;
-  return jsonb_build_object(
-    'is_correct', v_correct,
-    'score', v_player.score,
-    'points_earned', v_points
-  );
+  return jsonb_build_object('submitted', true);
+end;
+$$;
+
+create or replace function public.submit_quiz_text_answer(p_code text, p_player_id uuid, p_answer_text text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_game public.quiz_games%rowtype;
+  v_quiz public.quizzes%rowtype;
+  v_player public.quiz_players%rowtype;
+  v_question jsonb;
+  v_correct boolean;
+  v_points integer := 0;
+  v_base_points integer;
+  v_elapsed_seconds numeric;
+  v_time_limit integer;
+  v_answer_started_at timestamptz;
+  v_answer_points integer;
+begin
+  select * into v_game from public.quiz_games where code = p_code for update;
+  if not found or v_game.status <> 'question' then
+    raise exception 'Gerade ist keine Frage geöffnet.';
+  end if;
+
+  select * into v_player from public.quiz_players
+  where id = p_player_id and game_id = v_game.id;
+  if not found then
+    raise exception 'Spieler nicht gefunden. Bitte tritt dem Quiz erneut bei.';
+  end if;
+
+  if length(btrim(coalesce(p_answer_text, ''))) not between 1 and 120 then
+    raise exception 'Die Antwort muss zwischen 1 und 120 Zeichen lang sein.';
+  end if;
+
+  if exists (
+    select 1 from public.quiz_answers
+    where player_id = v_player.id and question_index = v_game.current_question
+  ) then
+    select bool_and(is_correct), max(points_earned)
+    into v_correct, v_answer_points
+    from public.quiz_answers
+    where player_id = v_player.id and question_index = v_game.current_question;
+    select * into v_player from public.quiz_players where id = v_player.id;
+    return jsonb_build_object('submitted', true);
+  end if;
+
+  v_time_limit := public.quiz_question_time_limit(v_game.id, v_game.current_question);
+  v_answer_started_at := v_game.question_started_at + interval '10 seconds';
+  if clock_timestamp() < v_answer_started_at then
+    raise exception 'Bitte lies zuerst die Frage. Die Texteingabe erscheint gleich.';
+  end if;
+  if clock_timestamp() >= v_answer_started_at + (v_time_limit * interval '1 second') then
+    raise exception 'Die Antwortzeit ist abgelaufen.';
+  end if;
+
+  select * into v_quiz from public.quizzes where id = v_game.quiz_id;
+  v_question := v_quiz.questions -> v_game.current_question;
+  if coalesce(v_question ->> 'answerType', 'multiple-choice') <> 'text' then
+    raise exception 'Diese Frage erwartet die Auswahl einer Antwort.';
+  end if;
+
+  select exists (
+    select 1
+    from jsonb_array_elements_text(v_question -> 'answers') as accepted(value)
+    where lower(btrim(accepted.value)) = lower(btrim(p_answer_text))
+  ) into v_correct;
+
+  if v_correct then
+    case coalesce(v_question ->> 'scoringMode', 'normal')
+      when 'normal' then v_base_points := 1000;
+      when 'double' then v_base_points := 2000;
+      when 'none' then v_base_points := 0;
+      else raise exception 'Die Punktewertung dieser Frage ist ungültig.';
+    end case;
+    v_elapsed_seconds := greatest(0, extract(epoch from (clock_timestamp() - v_answer_started_at)));
+    v_points := floor(
+      v_base_points * greatest(0.5, 1 - least(v_elapsed_seconds, v_time_limit) / (v_time_limit * 2.0))
+    );
+  end if;
+
+  insert into public.quiz_answers (game_id, player_id, question_index, answer_index, is_correct, points_earned)
+  values (v_game.id, v_player.id, v_game.current_question, 0, v_correct, v_points);
+  if v_correct and v_points > 0 then
+    update public.quiz_players set score = score + v_points where id = v_player.id;
+  end if;
+
+  select * into v_player from public.quiz_players where id = v_player.id;
+  return jsonb_build_object('submitted', true);
 end;
 $$;
 
@@ -448,9 +577,11 @@ revoke all on function public.get_public_quiz_display(text) from public;
 revoke all on function public.get_quiz_game_state(text, uuid) from public;
 revoke all on function public.advance_quiz_game(text) from public;
 revoke all on function public.submit_quiz_answer(text, uuid, integer[]) from public;
+revoke all on function public.submit_quiz_text_answer(text, uuid, text) from public;
 
 grant execute on function public.get_teacher_game_state(text) to authenticated;
 grant execute on function public.get_public_quiz_display(text) to anon, authenticated;
 grant execute on function public.get_quiz_game_state(text, uuid) to anon, authenticated;
 grant execute on function public.advance_quiz_game(text) to authenticated;
 grant execute on function public.submit_quiz_answer(text, uuid, integer[]) to anon, authenticated;
+grant execute on function public.submit_quiz_text_answer(text, uuid, text) to anon, authenticated;

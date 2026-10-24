@@ -12,6 +12,7 @@ import {
   saveQuiz,
   startGame,
   submitAnswer,
+  submitTextAnswer,
   type PublicGameState,
   type DisplayGameState,
   type SavedQuiz,
@@ -61,12 +62,19 @@ function useCountdown(deadline: string | null) {
   return secondsRemaining;
 }
 
+function openConsoleTab() {
+  const tab = window.open("about:blank", "_blank");
+  if (tab) tab.opener = null;
+  return tab;
+}
+
 function StudentHome() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [playerId, setPlayerId] = useState("");
   const [gameState, setGameState] = useState<PublicGameState | null>(null);
   const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
+  const [textAnswer, setTextAnswer] = useState("");
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
   const [answering, setAnswering] = useState(false);
@@ -101,6 +109,7 @@ function StudentHome() {
 
   useEffect(() => {
     setSelectedAnswers([]);
+    setTextAnswer("");
   }, [code, gameState?.current_question]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -120,21 +129,32 @@ function StudentHome() {
   }
 
   function toggleAnswer(answerIndex: number) {
-    setSelectedAnswers((current) => current.includes(answerIndex)
-      ? current.filter((index) => index !== answerIndex)
-      : [...current, answerIndex]);
+    setSelectedAnswers((current) => {
+      if (!gameState?.question?.allow_multiple_answers) {
+        return current.includes(answerIndex) ? [] : [answerIndex];
+      }
+      return current.includes(answerIndex)
+        ? current.filter((index) => index !== answerIndex)
+        : [...current, answerIndex];
+    });
   }
 
   async function handleAnswer() {
     if (!playerId || gameState?.has_answered) return;
-    if (selectedAnswers.length === 0) {
-      setError("Wähle mindestens eine Antwort aus.");
+    if (gameState?.question?.answer_type === "text" ? !textAnswer.trim() : selectedAnswers.length === 0) {
+      setError(gameState?.question?.answer_type === "text"
+        ? "Gib zuerst eine Antwort ein."
+        : "Wähle mindestens eine Antwort aus.");
       return;
     }
     setAnswering(true);
     setError("");
     try {
-      await submitAnswer(code, playerId, selectedAnswers);
+      if (gameState?.question?.answer_type === "text") {
+        await submitTextAnswer(code, playerId, textAnswer.trim());
+      } else {
+        await submitAnswer(code, playerId, selectedAnswers);
+      }
       setGameState(await getGameState(code, playerId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Antwort konnte nicht gespeichert werden.");
@@ -178,26 +198,54 @@ function StudentHome() {
                 <p className="question-timer" role="timer">Noch {answerSecondsRemaining} Sekunden</p>
               ) : null}
               <h2>{gameState.question?.prompt}</h2>
-              {(gameState.has_answered || answerPhaseOver) && (
+              {gameState.answer_revealed ? (
                 <p className={gameState.is_correct ? "answer-feedback correct" : "answer-feedback incorrect"} role="status">
                   {gameState.has_answered
                     ? gameState.is_correct
                       ? `Richtig! +${gameState.points_earned.toLocaleString("de-DE")} Punkte.`
                       : "Leider falsch."
-                    : answerPhaseStarted && answerSecondsRemaining !== null && answerSecondsRemaining > 0
-                      ? "Alle haben geantwortet – du hast keine Antwort abgegeben."
-                      : "Zeit abgelaufen – du hast keine Antwort abgegeben."}{" "}
+                    : "Du hast keine Antwort abgegeben."}{" "}
                   · Punktestand: {gameState.score.toLocaleString("de-DE")}
-                  {gameState.answer_revealed
-                    ? <><br />Die richtige Antwort ist grün markiert.</>
-                    : answerPhaseOver
-                      ? <><br />Die Antworten werden aufgelöst.</>
-                      : <><br />Warte auf die Antworten der anderen.</>}
+                  <br />{gameState.question?.answer_type === "text" ? "Die akzeptierten Antworten werden angezeigt." : "Die richtige Antwort ist grün markiert."}
                 </p>
-              )}
+              ) : gameState.has_answered ? (
+                <p className="answer-feedback" role="status">
+                  Antwort abgeschickt. Du erfährst das Ergebnis, sobald alle geantwortet haben oder die Zeit abgelaufen ist.
+                </p>
+              ) : answerPhaseOver ? (
+                <p className="answer-feedback incorrect" role="status">
+                  Du hast keine Antwort abgegeben. Das Ergebnis wird gleich aufgelöst.
+                </p>
+              ) : null}
               {!gameState.has_answered && answerPhaseStarted && !answerPhaseOver && (
                 <div className="player-answer-list">
-                  {gameState.question?.answers.map((answer, index) => (
+                  {gameState.question?.answer_type === "text" ? (
+                    <>
+                      <label className="visually-hidden" htmlFor="student-text-answer">Deine Antwort</label>
+                      <input
+                        id="student-text-answer"
+                        className="student-text-answer"
+                        maxLength={120}
+                        value={textAnswer}
+                        onChange={(event) => setTextAnswer(event.target.value)}
+                        placeholder="Deine Antwort eingeben"
+                        disabled={answering}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void handleAnswer();
+                          }
+                        }}
+                      />
+                      <button
+                        className="button button-primary button-wide"
+                        disabled={answering || !textAnswer.trim()}
+                        onClick={() => void handleAnswer()}
+                      >
+                        {answering ? "Antwort wird gesendet ..." : "Antwort bestätigen"}
+                      </button>
+                    </>
+                  ) : gameState.question?.answers.map((answer, index) => (
                     <button
                       className={`player-answer answer-${index % 4} ${selectedAnswers.includes(index) ? "player-answer-selected" : ""}`}
                       key={index}
@@ -208,17 +256,31 @@ function StudentHome() {
                       <span className="answer-number">{index + 1}</span>{answer}
                     </button>
                   ))}
-                  <p className="answer-select-hint">Du kannst mehrere Antworten auswählen.</p>
-                  <button
-                    className="button button-primary button-wide"
-                    disabled={answering || selectedAnswers.length === 0}
-                    onClick={() => void handleAnswer()}
-                  >
-                    {answering ? "Antwort wird gesendet ..." : "Antwort bestätigen"}
-                  </button>
+                  {gameState.question?.answer_type !== "text" && (
+                    <>
+                      <p className="answer-select-hint">
+                        {gameState.question?.allow_multiple_answers
+                          ? "Du kannst mehrere Antworten auswählen."
+                          : "Wähle genau eine Antwort aus."}
+                      </p>
+                      <button
+                        className="button button-primary button-wide"
+                        disabled={answering || selectedAnswers.length === 0}
+                        onClick={() => void handleAnswer()}
+                      >
+                        {answering ? "Antwort wird gesendet ..." : "Antwort bestätigen"}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
-              {gameState.answer_revealed && (
+              {gameState.answer_revealed && gameState.question?.answer_type === "text" && gameState.question.answers.length > 0 && (
+                <div className="text-answer-review">
+                  <strong>Akzeptierte Antworten</strong>
+                  <ul>{gameState.question.answers.map((answer, index) => <li key={index}>{answer}</li>)}</ul>
+                </div>
+              )}
+              {gameState.answer_revealed && gameState.question?.answer_type !== "text" && (
                 <div className="player-answer-list answer-review">
                   {gameState.question?.answers.map((answer, index) => (
                     <div
@@ -291,16 +353,29 @@ function validateQuiz(quiz: Quiz): string | null {
       return `Das Zeitlimit für Frage ${index + 1} muss zwischen 5 und 120 Sekunden liegen.`;
     }
     if (!question.prompt.trim()) return `Bitte ergänze den Text von Frage ${index + 1}.`;
-    if (question.answers.length < 2 || question.answers.length > 6) {
-      return `Frage ${index + 1} braucht zwei bis sechs Antwortmöglichkeiten.`;
+    if (
+      question.answers.length < (question.answerType === "text" ? 1 : 2) ||
+      (question.answerType === "multiple-choice" && question.answers.length > 6)
+    ) {
+      return question.answerType === "text"
+        ? `Frage ${index + 1} braucht mindestens eine akzeptierte Antwort.`
+        : `Frage ${index + 1} braucht zwei bis sechs Antwortmöglichkeiten.`;
     }
     if (question.answers.some((answer) => !answer.trim())) {
-      return `Bitte fülle alle ${question.answers.length} Antworten bei Frage ${index + 1} aus.`;
+      return `Bitte fülle alle ${question.answers.length} ${question.answerType === "text" ? "akzeptierten Antworten" : "Antworten"} bei Frage ${index + 1} aus.`;
     }
-    if (
+    if (question.answerType === "text") {
+      if (question.answers.some((answer) => answer.length > 120)) {
+        return `Akzeptierte Antworten bei Frage ${index + 1} dürfen höchstens 120 Zeichen lang sein.`;
+      }
+      if (new Set(question.answers.map((answer) => answer.trim().toLocaleLowerCase("de"))).size !== question.answers.length) {
+        return `Frage ${index + 1} enthält doppelte akzeptierte Antworten.`;
+      }
+    }
+    if (question.answerType === "multiple-choice" && (
       question.correctAnswers.length === 0 ||
       question.correctAnswers.some((answer) => answer < 0 || answer >= question.answers.length)
-    ) {
+    )) {
       return `Bitte markiere mindestens eine richtige Antwort bei Frage ${index + 1}.`;
     }
   }
@@ -356,14 +431,21 @@ function TeacherDashboard({
   }, [game?.code]);
 
   async function handleStartQuiz(quiz: SavedQuiz) {
+    const consoleTab = openConsoleTab();
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const code = await startGame(quiz.id);
       setGame(await getTeacherGameState(code));
+      if (consoleTab) {
+        consoleTab.location.href = `${window.location.origin}${import.meta.env.BASE_URL}lehrer/konsole/${code}`;
+      } else {
+        setNotice("Quiz gestartet. Der Browser hat den neuen Tab blockiert; öffne die Steuerkonsole über den Live-Spielbereich.");
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (cause) {
+      consoleTab?.close();
       setError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht gestartet werden.");
     } finally {
       setBusy(false);
@@ -485,8 +567,12 @@ function TeacherDashboard({
                       : `Frage ${game.current_question + 1} von ${game.question_count}`}
                 </p>
                 {game.status !== "finished" && (
-                  <button className="button button-primary" onClick={() => void handleAdvanceGame()} disabled={busy}>
-                    {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : "Nächste Frage"}
+                  <button
+                    className="button button-primary"
+                    onClick={() => void handleAdvanceGame()}
+                    disabled={busy || (game.status === "question" && !game.answer_revealed)}
+                  >
+                    {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : game.scoreboard_revealed ? "Nächste Frage" : game.answer_revealed ? game.current_question + 1 === game.question_count ? "Quiz beenden · Siegerpodest" : "Weiter · Scoreboard anzeigen" : "Frage läuft"}
                   </button>
                 )}
               </div>
@@ -532,7 +618,7 @@ function TeacherDashboard({
                 </div>
                 <div className="quiz-tile-content">
                   <h3>{quiz.title}</h3>
-                  <p>2 bis 6 Antwortmöglichkeiten pro Frage</p>
+                  <p>Multiple Choice oder Freitext</p>
                   <div className="quiz-tile-actions">
                     <button
                       className="button button-secondary"
@@ -659,7 +745,7 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
                 onClick={() => void handleAdvance()}
                 disabled={busy || game.status === "finished" || (game.status === "question" && !answerPhaseOver)}
               >
-                {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : game.status === "finished" ? "Quiz beendet" : answerPhaseOver ? "Nächste Frage" : "Frage läuft"}
+                {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : game.status === "finished" ? "Quiz beendet" : !answerPhaseOver ? "Frage läuft" : game.scoreboard_revealed ? "Nächste Frage" : game.current_question + 1 === game.question_count ? "Quiz beenden · Siegerpodest" : "Weiter · Scoreboard anzeigen"}
               </button>
             </div>
           </section>
@@ -679,7 +765,9 @@ function TeacherConsole({ code, email }: { code: string; email: string | undefin
                   : game.status === "finished"
                     ? "Das Ergebnis wird auf der Tafel angezeigt."
                     : answerPhaseOver
-                      ? "Die richtige Antwort wird auf der Tafel angezeigt."
+                      ? game.scoreboard_revealed
+                        ? "Das Scoreboard wird auf der Tafel angezeigt. Mit „Nächste Frage“ geht es weiter."
+                        : "Alle Antworten sind da. Drücke „Weiter“, um das Scoreboard auf der Tafel anzuzeigen."
                       : !answerPhaseStarted
                         ? `Lesezeit: noch ${readingSecondsRemaining ?? 10} Sekunden.`
                         : `Antworten eingegangen: ${game.answered_count} von ${game.players.length}. Noch ${answerSecondsRemaining ?? 30} Sekunden.`}
@@ -769,17 +857,53 @@ function ProjectorDisplay() {
       ) : game.status === "finished" ? (
         <div className="projector-finished">
           <span className="projector-kicker">Das war's!</span>
-          <h1>Quiz beendet</h1>
-          <p>Hier ist die Rangliste.</p>
-          <ol className="projector-podium">
-            {game.players.map((player, index) => (
-              <li key={`${player.name}-${index}`} className={index < 3 ? `podium-${index + 1}` : ""}>
-                <span className="podium-rank">{index + 1}</span>
-                <span>{player.name}</span>
-                <strong>{player.score}</strong>
-              </li>
-            ))}
-          </ol>
+          <h1>Siegerpodest</h1>
+          <p>Die drei Besten im Quiz „{game.title}“</p>
+          {game.players.length ? (
+            <div className="projector-podium-stage">
+              {[1, 0, 2].map((playerIndex) => {
+                const player = game.players[playerIndex];
+                if (!player) return <div className="podium-place-empty" key={`empty-${playerIndex}`} />;
+                const rank = playerIndex + 1;
+                return (
+                  <article className={`podium-place podium-place-${rank}`} key={`${player.name}-${rank}`}>
+                    <span className="podium-medal">{rank === 1 ? "1." : rank === 2 ? "2." : "3."} Platz</span>
+                    <strong className="podium-player-name">{player.name}</strong>
+                    <span className="podium-player-score">{player.score.toLocaleString("de-DE")} Punkte</span>
+                    <span className="podium-block">{rank}</span>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p>Es sind keine Spieler im Quiz.</p>
+          )}
+        </div>
+      ) : game.scoreboard_revealed ? (
+        <div className="projector-scoreboard-page">
+          <span className="projector-kicker">Frage {game.current_question + 1} aufgelöst</span>
+          <h1>Top 5 · Scoreboard</h1>
+          <p>Die Rangliste nach dieser Frage</p>
+          {game.players.length ? (
+            <ol className="projector-scoreboard-list">
+              {game.players.slice(0, 5).map((player, index) => (
+                <li key={`${player.name}-${index}`} className={index < 3 ? `scoreboard-place-${index + 1}` : ""}>
+                  <span className="scoreboard-rank">{index + 1}</span>
+                  <span className="scoreboard-name">{player.name}</span>
+                  <strong>{player.score.toLocaleString("de-DE")} Punkte</strong>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>Es sind noch keine Spieler beigetreten.</p>
+          )}
+          {game.question?.answer_type === "text" && game.question.answers.length > 0 && (
+            <div className="text-answer-review">
+              <strong>Akzeptierte Antworten</strong>
+              <ul>{game.question.answers.map((answer, index) => <li key={index}>{answer}</li>)}</ul>
+            </div>
+          )}
+          <span className="scoreboard-next-hint">Die Lehrkraft startet die nächste Frage.</span>
         </div>
       ) : (
         <div className="projector-question-layout">
@@ -813,26 +937,9 @@ function ProjectorDisplay() {
           </section>
           <aside className="projector-question-players">
             <div className="projector-answer-count">{game.answered_count}<span>von {game.players.length} Antworten</span></div>
-            {game.answer_revealed ? (
-              <>
-                <h2>Top 5 · Scoreboard</h2>
-                <ol className="projector-scoreboard">
-                  {game.players.slice(0, 5).map((player, index) => (
-                    <li key={`${player.name}-${index}`}>
-                      <span className="scoreboard-rank">{index + 1}</span>
-                      <span className="scoreboard-name">{player.name}</span>
-                      <strong>{player.score.toLocaleString("de-DE")}</strong>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            ) : (
-              <>
-                <h2>Spieler</h2>
-                <ul>{game.players.slice(0, 12).map((player, index) => <li key={`${player.name}-${index}`}>{player.name}</li>)}</ul>
-                {game.players.length > 12 && <span className="projector-more">und {game.players.length - 12} weitere ...</span>}
-              </>
-            )}
+            <h2>Spieler</h2>
+            <ul>{game.players.slice(0, 12).map((player, index) => <li key={`${player.name}-${index}`}>{player.name}</li>)}</ul>
+            {game.players.length > 12 && <span className="projector-more">und {game.players.length - 12} weitere ...</span>}
           </aside>
         </div>
       )}
@@ -880,7 +987,7 @@ function TeacherGamePanel({
         </button>
       </div>
       <div className="game-screen-links">
-        <Link className="button button-secondary" to={`/lehrer/konsole/${game.code}`}>
+        <Link className="button button-secondary" to={`/lehrer/konsole/${game.code}`} target="_blank" rel="noreferrer">
           Steuerkonsole auf anderem Gerät
         </Link>
         <Link className="button button-secondary" to={`/tafel/${game.code}`} target="_blank" rel="noreferrer">
@@ -895,14 +1002,16 @@ function TeacherGamePanel({
             : game.status === "finished"
               ? "Das Quiz ist beendet."
               : answerPhaseOver
-                ? `Antwort aufgelöst · ${game.answered_count} von ${game.players.length} haben geantwortet.`
+                ? game.scoreboard_revealed
+                  ? "Scoreboard wird auf der Tafel angezeigt."
+                  : `Antworten abgeschlossen · ${game.answered_count} von ${game.players.length}. Mit „Weiter“ erscheint das Scoreboard.`
                 : !answerPhaseStarted
                   ? `Frage ${game.current_question + 1} von ${game.question_count} · Lesezeit: ${readingSecondsRemaining ?? 10} Sekunden`
                   : `Frage ${game.current_question + 1} von ${game.question_count} · ${game.answered_count} von ${game.players.length} Antworten · noch ${answerSecondsRemaining ?? 30} Sekunden`}
         </p>
         {game.status !== "finished" && (
           <button className="button button-primary" onClick={onAdvance} disabled={busy || (game.status === "question" && !answerPhaseOver)}>
-            {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : answerPhaseOver ? "Nächste Frage" : "Frage läuft"}
+            {busy ? "Bitte warten ..." : game.status === "waiting" ? "Quiz starten" : !answerPhaseOver ? "Frage läuft" : game.scoreboard_revealed ? "Nächste Frage" : game.current_question + 1 === game.question_count ? "Quiz beenden · Siegerpodest" : "Weiter · Scoreboard anzeigen"}
           </button>
         )}
       </div>
@@ -985,6 +1094,7 @@ function TeacherEditor({
       setMessage(validationError);
       return;
     }
+    const consoleTab = openConsoleTab();
     setSaving(true);
     setMessage("");
     setGameError("");
@@ -993,7 +1103,13 @@ function TeacherEditor({
       setQuizId(saved.id);
       const code = await startGame(saved.id);
       setActiveGame(await getTeacherGameState(code));
+      if (consoleTab) {
+        consoleTab.location.href = `${window.location.origin}${import.meta.env.BASE_URL}lehrer/konsole/${code}`;
+      } else {
+        setMessage("Quiz gestartet. Öffne die Steuerkonsole über den Link beim Spielcode.");
+      }
     } catch (cause) {
+      consoleTab?.close();
       setGameError(cause instanceof Error ? cause.message : "Das Quiz konnte nicht gestartet werden.");
     } finally {
       setSaving(false);
@@ -1033,8 +1149,26 @@ function TeacherEditor({
 
   function addAnswer(questionIndex: number) {
     const question = quiz.questions[questionIndex];
-    if (question.answers.length >= 6) return;
-    updateQuestion(questionIndex, { answers: [...question.answers, ""] });
+    if (question.answerType === "multiple-choice" && question.answers.length >= 6) return;
+    const answers = [...question.answers, ""];
+    updateQuestion(questionIndex, {
+      answers,
+      correctAnswers: question.answerType === "text" ? answers.map((_, index) => index) : question.correctAnswers,
+    });
+  }
+
+  function changeAnswerType(questionIndex: number, answerType: QuizQuestion["answerType"]) {
+    const question = quiz.questions[questionIndex];
+    if (answerType === "text") {
+      updateQuestion(questionIndex, {
+        answerType,
+        correctAnswers: question.answers.map((_, index) => index),
+      });
+      return;
+    }
+    const answers = question.answers.slice(0, 6);
+    while (answers.length < 2) answers.push("");
+    updateQuestion(questionIndex, { answerType, answers, correctAnswers: [0] });
   }
 
   function addQuestion() {
@@ -1060,12 +1194,14 @@ function TeacherEditor({
 
   function removeAnswer(questionIndex: number, answerIndex: number) {
     const question = quiz.questions[questionIndex];
-    if (question.answers.length <= 2) return;
+    if (question.answers.length <= (question.answerType === "text" ? 1 : 2)) return;
     const answers = question.answers.filter((_, index) => index !== answerIndex);
     const remainingCorrectAnswers = question.correctAnswers
       .filter((index) => index !== answerIndex)
       .map((index) => index > answerIndex ? index - 1 : index);
-    const correctAnswers = remainingCorrectAnswers.length ? remainingCorrectAnswers : [0];
+    const correctAnswers = question.answerType === "text"
+      ? answers.map((_, index) => index)
+      : remainingCorrectAnswers.length ? remainingCorrectAnswers : [0];
     updateQuestion(questionIndex, { answers, correctAnswers });
   }
 
@@ -1159,7 +1295,7 @@ function TeacherEditor({
         <div>
           <span className="eyebrow">Schritt 2</span>
           <h2>Deine Fragen <span className="count-badge">{quiz.questions.length}</span></h2>
-          <p>Jede Frage braucht mindestens 2 und höchstens 6 Antworten.</p>
+          <p>Multiple Choice: 2 bis 6 Optionen. Freitext: beliebig viele akzeptierte Antworten.</p>
         </div>
         <button
           className="button button-secondary"
@@ -1187,10 +1323,9 @@ function TeacherEditor({
                   </span>
                 </span>
                 <span className="question-card-meta">
-                  {question.answers.length} Antworten
-                  <span className="question-correct-count">
-                    · {question.correctAnswers.length} richtig
-                  </span>
+                  {question.answerType === "text"
+                    ? `${question.answers.length} akzeptierte Antworten`
+                    : <>{question.answers.length} Antworten<span className="question-correct-count"> · {question.correctAnswers.length} richtig</span></>}
                   <span>· {question.timeLimitSeconds} Sek.</span>
                   <span>· {question.scoringMode === "double" ? "2× Punkte" : question.scoringMode === "none" ? "0 Punkte" : "1× Punkte"}</span>
                   <span className="question-chevron" aria-hidden="true">⌄</span>
@@ -1218,6 +1353,22 @@ function TeacherEditor({
                   onChange={(event) => updateQuestion(questionIndex, { prompt: event.target.value })}
                   placeholder="Zum Beispiel: Welcher Planet ist der größte?"
                 />
+                <div className="scoring-mode">
+                  <label className="field-label" htmlFor={`answer-type-${questionIndex}`}>Antworttyp</label>
+                  <select
+                    id={`answer-type-${questionIndex}`}
+                    value={question.answerType}
+                    onChange={(event) => changeAnswerType(questionIndex, event.target.value as QuizQuestion["answerType"])}
+                  >
+                    <option value="multiple-choice">Multiple Choice</option>
+                    <option value="text">Texteingabe (Freitext)</option>
+                  </select>
+                  <span className="field-hint">
+                    {question.answerType === "text"
+                      ? "Schüler geben eine Antwort ein. Lege alle Schreibweisen oder Alternativen an, die als richtig gelten."
+                      : "Schüler wählen eine oder mehrere der Antwortmöglichkeiten aus."}
+                  </span>
+                </div>
                 <div className="scoring-mode">
                   <label className="field-label" htmlFor={`time-limit-${questionIndex}`}>Zeitlimit</label>
                   <div className="time-limit-input">
@@ -1253,12 +1404,12 @@ function TeacherEditor({
                 </div>
                 <fieldset className="answers-fieldset">
                   <legend>
-                    Antwortmöglichkeiten
-                    <span>Markiere alle richtigen Antworten.</span>
+                    {question.answerType === "text" ? "Akzeptierte Antworten" : "Antwortmöglichkeiten"}
+                    <span>{question.answerType === "text" ? "Jede dieser Eingaben gilt als richtig." : "Markiere alle richtigen Antworten."}</span>
                   </legend>
                   <div className="answer-grid">
                     {question.answers.map((answer, answerIndex) => (
-                      <div className={`answer-option answer-${answerIndex} ${question.correctAnswers.includes(answerIndex) ? "is-correct" : ""}`} key={answerIndex}>
+                      <div className={`answer-option answer-${answerIndex % 6} ${question.correctAnswers.includes(answerIndex) ? "is-correct" : ""}`} key={answerIndex}>
                         <span className="answer-number">{answerIndex + 1}</span>
                         <input
                           className="answer-input"
@@ -1268,20 +1419,22 @@ function TeacherEditor({
                           placeholder={`Antwort ${answerIndex + 1}`}
                           aria-label={`Antwort ${answerIndex + 1} für Frage ${questionIndex + 1}`}
                         />
-                        <label className="correct-answer-toggle">
-                          <input
-                            type="checkbox"
-                            checked={question.correctAnswers.includes(answerIndex)}
-                            onChange={(event) => {
-                              const correctAnswers = event.target.checked
-                                ? [...question.correctAnswers, answerIndex]
-                                : question.correctAnswers.filter((index) => index !== answerIndex);
-                              updateQuestion(questionIndex, { correctAnswers });
-                            }}
-                          />
-                          <span>Richtig</span>
-                        </label>
-                        {question.answers.length > 2 && (
+                        {question.answerType === "multiple-choice" && (
+                          <label className="correct-answer-toggle">
+                            <input
+                              type="checkbox"
+                              checked={question.correctAnswers.includes(answerIndex)}
+                              onChange={(event) => {
+                                const correctAnswers = event.target.checked
+                                  ? [...question.correctAnswers, answerIndex]
+                                  : question.correctAnswers.filter((index) => index !== answerIndex);
+                                updateQuestion(questionIndex, { correctAnswers });
+                              }}
+                            />
+                            <span>Richtig</span>
+                          </label>
+                        )}
+                        {question.answers.length > (question.answerType === "text" ? 1 : 2) && (
                           <button
                             className="remove-answer"
                             type="button"
@@ -1300,11 +1453,15 @@ function TeacherEditor({
                       className="add-answer-button"
                       type="button"
                       onClick={() => addAnswer(questionIndex)}
-                      disabled={question.answers.length >= 6}
+                      disabled={question.answerType === "multiple-choice" && question.answers.length >= 6}
                     >
-                      ＋ Antwort hinzufügen
+                      ＋ {question.answerType === "text" ? "Antwortvariante hinzufügen" : "Antwort hinzufügen"}
                     </button>
-                    <span>{question.answers.length} von 6 Antworten · mindestens 2</span>
+                    <span>
+                      {question.answerType === "text"
+                        ? `${question.answers.length} akzeptierte Antworten · kein Limit`
+                        : `${question.answers.length} von 6 Antworten · mindestens 2`}
+                    </span>
                   </div>
                 </fieldset>
               </div>

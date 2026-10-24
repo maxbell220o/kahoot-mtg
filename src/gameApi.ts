@@ -14,6 +14,7 @@ export interface TeacherGameState {
   deadline: string | null;
   answer_phase_started: boolean;
   answer_revealed: boolean;
+  scoreboard_revealed: boolean;
   answered_count: number;
   players: { name: string; score: number }[];
 }
@@ -29,7 +30,7 @@ export interface PublicGameState {
   answer_revealed: boolean;
   answered_count: number;
   player_count: number;
-  question: { prompt: string; answers: string[] } | null;
+  question: { prompt: string; answer_type: "multiple-choice" | "text"; allow_multiple_answers: boolean; answers: string[] } | null;
   score: number;
   points_earned: number;
   has_answered: boolean;
@@ -48,9 +49,10 @@ export interface DisplayGameState {
   deadline: string | null;
   answer_phase_started: boolean;
   answer_revealed: boolean;
+  scoreboard_revealed: boolean;
   correct_answers: number[] | null;
   answered_count: number;
-  question: { prompt: string; answers: string[] } | null;
+  question: { prompt: string; answer_type: "multiple-choice" | "text"; allow_multiple_answers: boolean; answers: string[] } | null;
   players: { name: string; score: number }[];
 }
 
@@ -136,12 +138,24 @@ export async function submitAnswer(
   code: string,
   playerId: string,
   answerIndices: number[],
-): Promise<{ is_correct: boolean; score: number }> {
-  const { data, error } = await client().rpc("submit_quiz_answer", {
+): Promise<void> {
+  const { error } = await client().rpc("submit_quiz_answer", {
     p_code: code,
     p_player_id: playerId,
     p_answer_indices: answerIndices,
   });
   if (error) throw error;
-  return data as { is_correct: boolean; score: number };
+}
+
+export async function submitTextAnswer(
+  code: string,
+  playerId: string,
+  answerText: string,
+): Promise<void> {
+  const { error } = await client().rpc("submit_quiz_text_answer", {
+    p_code: code,
+    p_player_id: playerId,
+    p_answer_text: answerText,
+  });
+  if (error) throw error;
 }
